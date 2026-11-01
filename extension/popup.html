@@ -1,11 +1,27 @@
 <!doctype html><meta charset="utf-8">
-<!-- FIX (#3/#4): IDM-style minimal popup. Floating panel, per-site toggle, compact toggle and "open panel" button removed. -->
+<!-- v1.8: switches + connection state + everything detected in this tab (pick one to send it to OpenDM). -->
 <style>
- body{font:13px system-ui;width:250px;padding:12px;margin:0} label{display:block;margin:6px 0;cursor:pointer}
- .n{opacity:.75;margin-top:8px} a{font-size:12px}
+ :root{color-scheme:light dark}
+ body{font:13px system-ui;width:340px;padding:12px;margin:0} label{display:block;margin:5px 0;cursor:pointer}
+ .n{opacity:.75;margin-top:8px;font-size:12px} a{font-size:12px}
+ h4{margin:12px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;opacity:.65}
+ #list{max-height:260px;overflow:auto;margin:0 -4px}
+ .it{display:flex;align-items:center;gap:8px;padding:6px 4px;border-radius:7px;cursor:pointer}
+ .it:hover{background:#8883}
+ .it .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .it .s{opacity:.65;font-size:11px;white-space:nowrap}
+ .chip{font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:#8884}
+ .it.busy{opacity:.5;pointer-events:none}
+ .none{opacity:.65;padding:6px 4px;font-size:12px}
 </style>
 <label><input id="on" type="checkbox"> Capture browser downloads</label>
 <label><input id="ovr" type="checkbox"> Show “Download this video” button</label>
+<label><input id="tip" type="checkbox"> Announce detected videos when they start playing</label>
+<label><input id="img" type="checkbox"> List images found on the page</label>
+<h4>Detected on this page</h4>
+<div id="list"><div class="none">Looking…</div></div>
+<div class="n" id="msg"></div>
 <div class="n" id="conn"></div>
+<div class="n" id="perf"></div>
 <p><a href="#" id="opt">Settings / pairing</a></p>
 <script src="popup.js"></script>

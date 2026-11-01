@@ -1,4 +1,4 @@
-// OpenDM content script - v1.7 (file names: names.js + page caption; formats prefetched when a video starts playing)
+// OpenDM content script - v1.8 (instant capture tip, hover button, YouTube quality list from the player's own data, no polling timers; v1.7: file names via names.js + page caption)
 // ONLY the IDM-style "Download this video" button on playing <video> elements (drag it, double-click resets, x hides it for that video).
 // FIX (#2): the "OpenDM Video Sniffer" floating panel/bubble was removed completely.
 // FIX (no sound): the menu now lists yt-dlp's formats (video+audio merged by OpenDM/ffmpeg) whenever the page is supported;
@@ -62,6 +62,16 @@
     .note{padding:10px 8px;color:var(--sub);font-size:12px}
     .mf{padding:6px 10px;font-size:11px;color:var(--sub);border-top:1px solid var(--bd);min-height:26px}
     .mf.err{color:#ef4444}
+    .mi{padding:0 10px 4px;font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tip{position:absolute;right:0;top:36px;display:none;align-items:center;gap:8px;max-width:min(360px,calc(100vw - 16px));padding:7px 8px 7px 10px;border-radius:10px;
+         background:var(--bg);color:var(--fg);border:1px solid var(--bd);box-shadow:0 6px 20px #0006;font-size:12px}
+    .ov.tipon:not(.open) .tip{display:flex}
+    .tip .tt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .tip button{all:unset;cursor:pointer;padding:3px 9px;border-radius:7px;background:#2563eb;color:#fff;font-weight:700;font-size:12px;white-space:nowrap}
+    .tip button.g{background:var(--chip);color:var(--fg)}
+    .tip .tx{padding:2px 6px;background:none;color:var(--sub);font-size:15px}
+    .pill.pulse{animation:odm 1.1s ease-out 2}
+    @keyframes odm{0%{box-shadow:0 0 0 0 #2563eb99,0 2px 10px #0008}100%{box-shadow:0 0 0 12px #2563eb00,0 2px 10px #0008}}
   `;
 
   // ---------- helpers ----------
@@ -70,7 +80,7 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const fmtSize = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(2) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB");
   const fmtEta = (s) => (s < 5 ? "a few seconds" : s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : Math.floor(s / 3600) + " h " + Math.round((s % 3600) / 60) + " min");
-  const N = globalThis.OpenDMNames;
+  const N = globalThis.OpenDMNames, AD = globalThis.OpenDMAdapters, CL = globalThis.OpenDMClassify;
   const safeName = N.safeName;
   const fileExt = (u) => { try { const m = new URL(u).pathname.match(/\.([a-z0-9]{2,4})$/i); return m ? m[1].toLowerCase() : "mp4"; } catch { return "mp4"; } };
   const extOf = (u) => { try { return (new URL(u).pathname.match(/\.([a-z0-9]{2,4})$/i)?.[1] || "FILE").toUpperCase(); } catch { return "FILE"; } };
@@ -79,6 +89,17 @@
     /not paired/i.test(e) ? "OpenDM isn't connected yet. Open OpenDM once: it registers itself with your browser. (Or paste a token in this extension's options.)"
     : /replied 401|token/i.test(e) ? "OpenDM and the extension disagree about the pairing token. Restart OpenDM, or re-paste the token in the extension's options."
     : /fetch|network|refused/i.test(e) || !e ? "OpenDM isn't running (or the port is wrong). Start it and try again." : e;
+
+  // ---- what the page's own JavaScript told us (page_hook.js, Chrome / Edge / Brave): the YouTube player's description of the current video
+  const hook = { yt: null };
+  const int = (n) => (Number.isFinite(+n) ? Math.max(0, Math.min(1e12, Math.floor(+n))) : 0);
+  const clip = (t, n = 300) => String(t == null ? "" : t).slice(0, n);
+  function sanitizeYT(d) {
+    return { id: clip(d.id, 20), title: clip(d.title), author: clip(d.author, 120), lengthSeconds: int(d.lengthSeconds), isLive: !!d.isLive, status: clip(d.status, 24), reason: clip(d.reason, 160), drm: !!d.drm, hls: !!d.hls,
+             formats: (Array.isArray(d.formats) ? d.formats : []).slice(0, 80).map((f) => ({ itag: int(f.itag), mime: clip(f.mime, 120), height: int(f.height), fps: int(f.fps), label: clip(f.label, 16), bitrate: int(f.bitrate), size: int(f.size), audio: !!f.audio, hasUrl: !!f.hasUrl })) };
+  }
+  const ytId = () => (CL && CL.youtubeWatchUrl(location.href) || {}).id || "";
+  const ytNow = () => (hook.yt && hook.yt.id && hook.yt.id === ytId() ? hook.yt : null);   // a stale answer for the previous video is never used
 
   // ---- the video's name (v1.7). Order: yt-dlp's real title -> the post's caption in the page -> metadata -> "<Site> video <id>".
   // The tab title is only used when it isn't generic; "Facebook", "Reels", "(3) Facebook" and the like are rejected by names.js.
@@ -114,9 +135,10 @@
   }
   function pickFor(video, yt) {
     const v = video || [...document.querySelectorAll("video")].find((x) => !x.paused && !x.ended) || document.querySelector("video");
+    let site = []; try { site = AD?.forPage(location.href).dom?.(document, v)?.titles || []; } catch {}   // per-site hooks (adapters.js)
     return N.pickName({
-      ytTitle: yt?.title, ytFallback: yt?.fallback,
-      dom: [v?.getAttribute("aria-label"), v?.title, postCaption(v), ...jsonLdTexts()],
+      ytTitle: yt?.title || ytNow()?.title, ytFallback: yt?.fallback,
+      dom: [v?.getAttribute("aria-label"), v?.title, postCaption(v), ...site, ...jsonLdTexts()],
       meta: [meta("meta[property='og:title']"), meta("meta[property='og:description']"), meta("meta[name='twitter:title']"), meta("meta[name='description']"), document.querySelector("h1")?.textContent, document.title],
       pageUrl: location.href,
     });
@@ -127,6 +149,8 @@
   const VIDEO_PAGE = /(\/watch\?|\/watch\/\?|\/shorts\/|\/reels?\/[\w-]+|\/p\/[\w-]+|\/tv\/|\/videos?\/|\/status\/|\/clip\/|\/embed\/|youtu\.be\/|\/v\/)/i;
   const PERMALINK = 'a[href*="/reel/"],a[href*="/reels/"],a[href*="/p/"],a[href*="/tv/"],a[href*="/watch/"],a[href*="/videos/"],a[href*="/status/"],a[href*="/shorts/"],a[href*="/watch?"]';
   function pageUrlFor(v) {
+    const ad = AD?.forPage(location.href), vp = ad && ad.videoPage ? ad.videoPage(location.href) : null;
+    if (vp) return vp.url;                                       // the clean address for this site (YouTube: /watch?v=ID, also for /shorts/ID, youtu.be/ID ...)
     if (VIDEO_PAGE.test(location.pathname + location.search)) return location.href;
     for (let n = v.parentElement, i = 0; n && i < 14; n = n.parentElement, i++) {
       if (n.querySelectorAll("video").length > 1) break;
@@ -137,7 +161,7 @@
   }
 
   // ---------- state ----------
-  let cfg = { overlay: true, ovCompact: false };
+  let cfg = { overlay: true, ovCompact: false, toast: true };
   const OV_HOME = { right: 10, top: 10 };
   const ovOff = { ...OV_HOME };   // where the button sits, measured from the video's top-right corner
   let items = [];                 // streams the background script sniffed for this tab (each may carry .audioUrl)
@@ -145,6 +169,7 @@
   const probes = new Map();       // direct file url -> undefined | null (checking) | {width,height,duration,video,audio,segment,size,useUrl} | false
   const overlays = new Map();     // <video> -> its button
   let refreshTimer = 0;
+  const toasted = new Set();      // capture tips already shown for this page (a resource is announced once)
 
   // ---------- shadow host ----------
   const host = el("div");
@@ -179,7 +204,7 @@
     }
     dataChanged();
   }
-  function dataChanged() { overlays.forEach((ov) => ov.el.classList.contains("open") && renderList(ov)); }
+  function dataChanged() { overlays.forEach((ov) => ov.el.classList.contains("open") && renderList(ov)); tipSoon(); }
   const refreshSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadItems, 300); };
 
   function shownItems() {
@@ -219,7 +244,26 @@
       audioUrl: audioUrl || undefined,
       filename: isHls || isDash ? base : base + "." + (audioUrl ? "mp4" : p && p.audio && !p.video ? "m4a" : fileExt(it.url)),
       quality: v?.height || 0, bandwidth: v?.bandwidth || 0,
+      meta: { site: it.site || siteName(), title: safeName(name) || "", ext: isHls || isDash ? "mp4" : fileExt(it.url), height: v?.height || (p && p.video ? Math.min(p.width, p.height) : 0), duration: (p && p.duration) || 0, size: (p && p.size) || it.size || 0, source: "stream" },
     };
+  }
+
+  const siteName = () => { const a = AD?.forPage(location.href); return a && a.name ? a.name : location.hostname.replace(/^(www|m)\./, ""); };
+  // facts about the capture that OpenDM shows in its dialog next to the name (all optional; OpenDM sanitises them)
+  const metaFor = (ov, extra) => ({ site: siteName(), title: ov.nameInput.value || "", duration: Math.round(ytNow()?.lengthSeconds || (Number.isFinite(ov.v.duration) ? ov.v.duration : 0) || ov.fmt?.duration || 0), source: ov.fmt && ov.fmt.ok ? "yt-dlp" : "page", ...extra });
+  // The quality ladder YouTube's player reports for THIS video: one row per height (picture + the best audio, sizes added), nothing invented.
+  function ytQuick() {
+    const y = ytNow();
+    if (!y || y.drm || (y.status && y.status !== "OK") || y.isLive) return null;
+    const aud = y.formats.filter((f) => f.audio).sort((a, b) => (/mp4/.test(b.mime) - /mp4/.test(a.mime)) || b.bitrate - a.bitrate)[0] || null;
+    const best = new Map();
+    for (const f of y.formats) {
+      if (f.audio || !f.height) continue;
+      const cur = best.get(f.height), score = (f.fps || 0) * 1e3 + (/avc1|mp4/.test(f.mime) ? 1 : 0);
+      if (!cur || score > cur.score) best.set(f.height, { ...f, score });
+    }
+    const rows = [...best.values()].sort((a, b) => b.height - a.height).map((f) => ({ height: f.height, fps: f.fps, size: (f.size || 0) + (f.size && aud ? aud.size || 0 : 0) }));
+    return rows.length || aud ? { rows, audio: aud ? { size: aud.size || 0 } : null } : null;
   }
 
   // =====================================================================================================
@@ -240,11 +284,14 @@
     ov.pill = el("div", { className: "pill", title: "Download this video with OpenDM  (drag to move, double-click to reset)" },
       el("img", { src: ICON }), el("span", { className: "lbl", textContent: "Download this video" }), el("span", { className: "car", textContent: "▾" }),
       el("button", { className: "x", textContent: "×", title: "Hide this button for this video", onclick: (e) => { e.stopPropagation(); ov.closedKey = instKey(v); closeMenu(ov); layout(ov); } }));
+    ov.tip = el("div", { className: "tip" }, el("span", { className: "tt" }), el("button", { textContent: "Download" }), el("button", { className: "g", textContent: "Qualities" }), el("button", { className: "tx", textContent: "×", title: "Dismiss" }));
+    ov.tip.children[1].onclick = () => quickDownload(ov); ov.tip.children[2].onclick = () => { hideTip(ov); openMenu(ov); }; ov.tip.children[3].onclick = () => hideTip(ov);
+    ov.info = el("div", { className: "mi" });
     ov.menu = el("div", { className: "menu" },
       el("div", { className: "mh" }, el("img", { src: ICON }), el("b", { textContent: "OpenDM · Download this video" }),
         el("button", { textContent: "×", title: "Close", onclick: () => closeMenu(ov) })),
-      el("div", { className: "mn" }, ov.nameInput), ov.list, ov.foot);
-    ov.el = el("div", { className: "ov" }, ov.pill, ov.menu);
+      el("div", { className: "mn" }, ov.nameInput), ov.info, ov.list, ov.foot);
+    ov.el = el("div", { className: "ov" }, ov.pill, ov.tip, ov.menu);
     enableOverlayDrag(ov);
     root.append(ov.el);
     overlays.set(v, ov);
@@ -256,7 +303,7 @@
   function shouldShow(ov, r) {
     const v = ov.v;
     if (!v.isConnected || !cfg.overlay) return false;
-    if (!ov.played && v.paused) return false;                  // the button appears once the video has started playing
+    if (!ov.played && v.paused && !ov.hover) return false;     // the button appears when the video has started playing - or while the pointer is over it
     if (ov.closedKey && ov.closedKey === instKey(v)) return false;
     if (r.width < MIN_W || r.height < MIN_H) return false;
     const vw = Math.min(r.right, innerWidth) - Math.max(r.left, 0), vh = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
@@ -288,13 +335,13 @@
     return true;
   }
 
-  let looping = false;
+  // The position of the button is recomputed only while something moved: a short burst of frames after a scroll / resize / size change, then nothing.
+  let looping = false, until = 0;
   function loop() {
-    let any = false;
-    for (const ov of [...overlays.values()]) { if (!ov.v.isConnected) { destroy(ov); continue; } any = layout(ov) || any; }
-    if (any) requestAnimationFrame(loop); else looping = false;
+    for (const ov of [...overlays.values()]) { if (!ov.v.isConnected) { destroy(ov); continue; } layout(ov); }
+    if (performance.now() < until && overlays.size) requestAnimationFrame(loop); else looping = false;
   }
-  function wake() { if (!looping && overlays.size) { looping = true; requestAnimationFrame(loop); } }
+  function wake(ms = 450) { until = Math.max(until, performance.now() + ms); if (!looping && overlays.size) { looping = true; requestAnimationFrame(loop); } }
 
   function enableOverlayDrag(ov) {
     const pill = ov.pill;
@@ -331,6 +378,8 @@
   async function openMenu(ov) {
     overlays.forEach((o) => o !== ov && closeMenu(o));
     ov.el.classList.add("open");
+    hideTip(ov);
+    try { window.postMessage({ source: "opendm-content", type: "ask" }, "*"); } catch {}   // page_hook.js answers with the player's data (YouTube)
     if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);
     ov.foot.className = "mf"; ov.foot.textContent = "Pick a quality to send it to OpenDM.";
     renderList(ov); layout(ov);
@@ -365,13 +414,23 @@
     if (f && f.ok && (f.formats?.length || f.audio)) {
       for (const x of f.formats || []) {
         rows.push({ label: x.height + "p" + (x.fps > 30 ? x.fps : ""), tag: String(x.ext || "mp4").toUpperCase(), size: x.size, approx: x.approx, sub: "video + sound",
-                    job: () => ({ url: page, kind: "ytdlp", quality: x.height, filename: [safeName(name()) || "video", x.height + "p"].join(" "), referer: location.href }) });
+                    job: () => ({ url: page, kind: "ytdlp", quality: x.height, filename: [safeName(name()) || "video", x.height + "p"].join(" "), referer: location.href, meta: metaFor(ov, { height: x.height, ext: String(x.ext || "mp4"), size: x.size }) }) });
       }
       if (f.audio) rows.push({ label: "Audio only", tag: String(f.audio.ext || "m4a").toUpperCase(), size: f.audio.size, approx: f.audio.approx,
-                               job: () => ({ url: page, kind: "ytdlp", quality: -1, filename: safeName(name()) || "audio", referer: location.href }) });
+                               job: () => ({ url: page, kind: "ytdlp", quality: -1, filename: safeName(name()) || "audio", referer: location.href, meta: metaFor(ov, { ext: String(f.audio.ext || "m4a"), size: f.audio.size, audio: true }) }) });
       return { rows, fallback: false, loading: 0 };
     }
-    if (ov.fmt === null) return { rows, fallback: false, loading: 0 };   // still asking yt-dlp: don't flash raw streams that vanish a second later
+    {   // still asking yt-dlp (or not asked yet): YouTube already told us its quality ladder (page_hook.js) - show that at once, sizes are refined when yt-dlp answers
+      const q = ov.fmt === null || ov.fmt === undefined ? ytQuick() : null;
+      if (q) {
+        for (const x of q.rows) rows.push({ label: x.height + "p" + (x.fps > 30 ? x.fps : ""), tag: "MP4", size: x.size, approx: true, sub: "video + sound",
+          job: () => ({ url: page, kind: "ytdlp", quality: x.height, filename: [safeName(name()) || "video", x.height + "p"].join(" "), referer: location.href, meta: metaFor(ov, { height: x.height, ext: "mp4", size: x.size }) }) });
+        if (q.audio) rows.push({ label: "Audio only", tag: "M4A", size: q.audio.size, approx: true,
+          job: () => ({ url: page, kind: "ytdlp", quality: -1, filename: safeName(name()) || "audio", referer: location.href, meta: metaFor(ov, { ext: "m4a", size: q.audio.size, audio: true }) }) });
+        return { rows, fallback: false, loading: 0, quick: true };
+      }
+      if (ov.fmt === null) return { rows, fallback: false, loading: 0 };   // don't flash raw streams that vanish a second later
+    }
     const all = shownItems(), src = ov.v.currentSrc || ov.v.src || "", dur = Number.isFinite(ov.v.duration) ? ov.v.duration : 0;
     const exact = all.filter((it) => src && (it.url === src || it.orig === src || (probes.get(it.url) || {}).useUrl === src));
     const sameLen = all.filter((it) => { const p = probes.get(it.url); return dur && p && p.duration && Math.abs(p.duration - dur) <= 1.5; });
@@ -402,18 +461,23 @@
   }
 
   function renderList(ov) {
-    const { rows: choices, fallback, loading } = choicesFor(ov);
+    const { rows: choices, fallback, loading, quick } = choicesFor(ov);
     const out = [];
-    if (choices.length) out.push(el("div", { className: "sep", textContent: fallback ? "Detected on this page" : "Available qualities" }));
+    const prot = protectedNote(ov);
+    ov.info.textContent = [siteName(), CL && ytNow()?.lengthSeconds ? CL.fmtDuration(ytNow().lengthSeconds) : "", ytNow()?.author].filter(Boolean).join(" · ");
+    if (prot) { ov.list.replaceChildren(el("div", { className: "note", textContent: prot })); return; }
+    if (choices.length) out.push(el("div", { className: "sep", textContent: fallback ? "Detected on this page" : quick ? "Available qualities (sizes are estimates)" : "Available qualities" }));
     for (const c of choices) {
       const bits = [c.size ? (c.approx ? "≈ " : "") + fmtSize(c.size) : "", etaFor(ov, c.size), c.sub].filter(Boolean).join(" · ");
       const q = el("div", { className: "q", title: "Send to OpenDM" }, el("span", { className: "ql", textContent: c.label }), el("span", { className: "chip", textContent: c.tag }),
                    el("span", { className: "qs", textContent: bits }), el("span", { className: "go", textContent: "⬇" }));
       q.onclick = async () => {
         q.classList.add("busy");
+        const t0 = performance.now();
         const r = await send({ cmd: "send", job: c.job() });   // background adds cookies + user-agent, then hands it to OpenDM (native messaging / local API)
+        const ms = Math.round(performance.now() - t0);
         q.classList.remove("busy");
-        if (r?.ok) { ov.foot.className = "mf"; ov.foot.textContent = "Sent to OpenDM ✔ (" + c.label + ")"; }
+        if (r?.ok) { ov.foot.className = "mf"; ov.foot.textContent = "Sent to OpenDM ✔ (" + c.label + ") · " + ms + " ms"; }
         else { ov.foot.className = "mf err"; ov.foot.textContent = errorHint(r?.error); }
       };
       out.push(q);
@@ -429,6 +493,45 @@
     ov.list.replaceChildren(...out);
   }
 
+  // Protected streams are never offered: no DRM bypass, no workaround - the menu says why.
+  function protectedNote(ov) {
+    const y = ytNow();
+    if (y && (y.drm || (y.status && y.status !== "OK" && y.status !== "LIVE_STREAM_OFFLINE"))) {
+      return y.drm ? "This video is DRM-protected. OpenDM does not download protected content."
+        : "YouTube says this video can't be played here" + (y.reason ? " (" + y.reason + ")" : "") + ". It may need a login, or it isn't available to download.";
+    }
+    const mine = items.filter((it) => it.drm);
+    return mine.length && !choicesFor(ov).rows.length ? "This stream is DRM-protected. OpenDM does not download protected content." : "";
+  }
+
+  // ---- instant capture tip: appears under the button as soon as a downloadable resource is known for a video that is playing (once per resource)
+  function hideTip(ov) { ov.el.classList.remove("tipon"); ov.pill.classList.remove("pulse"); clearTimeout(ov.tipT); }
+  function showTip(ov, text) {
+    if (!cfg.toast || ov.el.classList.contains("open") || !layout(ov)) return;
+    ov.tip.firstChild.textContent = text;
+    ov.el.classList.add("tipon"); ov.pill.classList.remove("pulse"); void ov.pill.offsetWidth; ov.pill.classList.add("pulse");
+    clearTimeout(ov.tipT); ov.tipT = setTimeout(() => hideTip(ov), 7000);
+  }
+  async function quickDownload(ov) {   // the tip's Download: best quality, straight to OpenDM's dialog
+    if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);   // the menu may never have been opened: fill in the real name now
+    const first = choicesFor(ov).rows[0];
+    hideTip(ov);
+    if (!first) return openMenu(ov);
+    const t0 = performance.now(), r = await send({ cmd: "send", job: first.job() });
+    openMenu(ov);
+    ov.foot.className = r?.ok ? "mf" : "mf err";
+    ov.foot.textContent = r?.ok ? "Sent to OpenDM ✔ (" + first.label + ") · " + Math.round(performance.now() - t0) + " ms" : errorHint(r?.error);
+  }
+  function maybeTip(ov) {
+    if (!cfg.toast || !ov || !ov.played || toasted.has(instKey(ov.v))) return;
+    const { rows } = choicesFor(ov);
+    if (!rows.length || protectedNote(ov)) return;
+    toasted.add(instKey(ov.v));
+    const nm = pickFor(ov.v, ov.fmt || null), r0 = rows[0];
+    showTip(ov, "Video detected" + (r0.label && !/^(Original|Best|Video)$/.test(r0.label) ? " · up to " + r0.label : "") + " — " + (nm.length > 42 ? nm.slice(0, 41) + "…" : nm));
+  }
+  function tipSoon() { clearTimeout(tipSoon.t); tipSoon.t = setTimeout(() => { for (const ov of overlays.values()) if (ov.played) maybeTip(ov); }, 60); }
+
   // ---------- finding videos: now, and as the page changes ----------
   // Look-ahead: when a video starts playing on a site yt-dlp supports, ask OpenDM for its qualities right away (only if OpenDM is already
   // running - this never starts it), so the menu is filled the moment the user opens it.
@@ -439,32 +542,55 @@
     const r = await send({ cmd: "formats", url: pageUrlFor(ov.v), referer: location.href, prefetch: true });
     if (r && r.ok && ov.fmt === undefined) { ov.fmt = r; ov.speed = r.speed || 0; if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, r); renderList(ov); }
   }
-  const markPlayed = (v) => { consider(v); const ov = overlays.get(v); if (ov) { ov.played = true; wake(); setTimeout(() => prefetch(ov), 400); } };
+  const markPlayed = (v) => { consider(v); const ov = overlays.get(v); if (ov) { ov.played = true; wake(); checkNav(); prefetch(ov); loadItems(); tipSoon(); } };   // v1.8: the look-ahead starts at once, not 400 ms later
   window.addEventListener("playing", (e) => e.target?.tagName === "VIDEO" && markPlayed(e.target), true);
   window.addEventListener("play", (e) => e.target?.tagName === "VIDEO" && markPlayed(e.target), true);
   window.addEventListener("loadstart", (e) => { if (e.target?.tagName === "VIDEO") { consider(e.target); wake(); } }, true);  // reels / playlists swap the source
   let scanTimer = 0;
   function scan() {
+    checkNav();
     document.querySelectorAll("video").forEach(consider);
     for (const ov of [...overlays.values()]) if (!ov.v.isConnected) destroy(ov);
     wake();
   }
-  const scanSoon = () => { if (!scanTimer) scanTimer = setTimeout(() => { scanTimer = 0; scan(); }, 120); };
-  new MutationObserver(scanSoon).observe(document.documentElement, { childList: true, subtree: true });
+  const scanSoon = () => { if (!scanTimer) scanTimer = setTimeout(() => { scanTimer = 0; scan(); }, 80); };
+  // v1.8: a page like YouTube mutates thousands of nodes; only a newly added <video> (or a subtree that contains one) is worth a re-scan
+  new MutationObserver((recs) => {
+    for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && (n.tagName === "VIDEO" || (n.getElementsByTagName && n.getElementsByTagName("video").length))) return scanSoon();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
+  // hover: IDM shows its button as soon as the pointer is over a video, even before it plays. Throttled; no per-frame work.
+  let hoverT = 0;
+  addEventListener("pointermove", (e) => {
+    if (!overlays.size || hoverT || !e.isTrusted) return;
+    hoverT = setTimeout(() => { hoverT = 0; }, 90);
+    for (const ov of overlays.values()) {
+      if (!ov.v.isConnected) continue;
+      const r = ov.v.getBoundingClientRect(), inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (inside) { clearTimeout(ov.hoverOff); if (!ov.hover) { ov.hover = true; wake(); } ov.hoverOff = setTimeout(() => { ov.hover = false; wake(); }, 1800); }
+    }
+  }, { capture: true, passive: true });
 
   // Single-page sites change the address without reloading (YouTube, Instagram, Facebook reels): re-arm every button.
   let lastHref = location.href;
   const checkNav = () => {
     if (location.href === lastHref) return;
     lastHref = location.href;
-    overlays.forEach((ov) => { ov.fmt = undefined; ov.fmtMsg = ""; ov.nameDirty = false; closeMenu(ov); });
-    scanSoon(); wake();
+    items = []; hook.yt = hook.yt && hook.yt.id === ytId() ? hook.yt : null;
+    overlays.forEach((ov) => { ov.fmt = undefined; ov.fmtMsg = ""; ov.nameDirty = false; ov.pre = ""; hideTip(ov); closeMenu(ov); });
+    scanSoon(); wake(); loadItems();
   };
-  setInterval(checkNav, 300);
+  // v1.8: no timers. The address change comes from page_hook.js ("nav"), the Navigation API, popstate/hashchange, YouTube's own events, and every scan.
   window.addEventListener("popstate", checkNav); window.addEventListener("hashchange", checkNav);
+  for (const t of ["yt-navigate-finish", "yt-page-data-updated"]) document.addEventListener(t, checkNav, true);
   try { window.navigation?.addEventListener("navigatesuccess", checkNav); } catch {}
-  setInterval(wake, 600);
-  for (const t of ["scroll", "resize"]) window.addEventListener(t, wake, { capture: true, passive: true });
+  for (const t of ["scroll", "resize", "transitionend", "animationend"]) window.addEventListener(t, () => wake(), { capture: true, passive: true });
+  window.addEventListener("message", (e) => {   // answers from page_hook.js (it runs in the page's own world)
+    if (e.source !== window || !e.data || e.data.source !== "opendm-hook") return;
+    const { type, data } = e.data;
+    if (type === "nav") checkNav();
+    else if (type === "yt-player" && data && typeof data === "object") { hook.yt = sanitizeYT(data); for (const ov of overlays.values()) { if (ov.el.classList.contains("open")) renderList(ov); } tipSoon(); }
+  });
   window.addEventListener("pointerdown", (e) => {  // a click anywhere else closes the menu
     const path = e.composedPath ? e.composedPath() : [];
     if (!path.includes(host)) overlays.forEach(closeMenu);
@@ -474,15 +600,17 @@
   // ---------- wiring ----------
   api.runtime.onMessage.addListener((m) => {
     if (m?.cmd === "media-updated") overlays.forEach((ov) => ov.el.classList.contains("open") && refreshSoon());
+    if (m?.cmd === "media-found") { loadItems(); setTimeout(tipSoon, 120); }   // the service worker saw a stream: refresh the list, then announce it
   });
   api.storage.onChanged.addListener((ch) => {
     if (ch.overlay) cfg.overlay = ch.overlay.newValue ?? true;
     if (ch.ovCompact) cfg.ovCompact = !!ch.ovCompact.newValue;
+    if (ch.toast) cfg.toast = ch.toast.newValue !== false;
     if (ch.ovOff?.newValue) Object.assign(ovOff, ch.ovOff.newValue);
     applyVisibility();
   });
-  api.storage.local.get({ overlay: true, ovCompact: false, ovOff: null }).then((c) => {
-    cfg = { overlay: c.overlay, ovCompact: c.ovCompact };
+  api.storage.local.get({ overlay: true, ovCompact: false, ovOff: null, toast: true }).then((c) => {
+    cfg = { overlay: c.overlay, ovCompact: c.ovCompact, toast: c.toast !== false };
     if (c.ovOff && Number.isFinite(c.ovOff.right) && Number.isFinite(c.ovOff.top)) Object.assign(ovOff, { right: Math.max(0, c.ovOff.right), top: Math.max(0, c.ovOff.top) });
     applyVisibility(); scan();
   });

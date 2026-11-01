@@ -13,6 +13,7 @@ GUI:  python opendm.py
 CLI:  python opendm.py URL [URL ...] [-n 8] [-o ~/Downloads]
 """
 import os, sys, json, time, threading, argparse, subprocess, platform, secrets, re, shutil
+import http.client
 import http.server, html.parser, math, copy, queue, io, base64, shlex, struct
 import urllib.error, mimetypes, fnmatch, tempfile, random
 import hashlib, socket, ftplib, functools, ipaddress, http.client, email.utils, glob
@@ -24,7 +25,7 @@ from collections import deque
 import urllib.request, urllib.parse
 from email.message import Message
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 UA = f"Mozilla/5.0 (compatible; OpenDM/{__version__})"
 CHUNK = 64 * 1024
 MAIN_QUEUE = "Main download queue"
@@ -4239,6 +4240,7 @@ class Manager:
 
 STALE_CAPTURE_SECS = 90      # a browser request older than this is ignored
 CAPTURE_DEDUPE_SECS = 30     # the same link offered again within this time is ignored
+CAPTURE_PUMP_MS = 25         # how often the GUI looks for a link the browser just sent (v1.8: was 100 ms) - an empty look costs microseconds
 CAPTURE_EXPIRE_SECS = 300    # a confirmation that waited this long unanswered is dropped
 CAPTURE_MAX_QUEUE = 10
 
@@ -4262,6 +4264,53 @@ def get_token(state_dir=None):
         return t
 
 
+META_SOURCES = ("yt-dlp", "page", "stream")
+
+
+def sanitize_meta(m):
+    """What the browser knows about a capture (site, title, quality, duration, size ...), cleaned up: wrong types and absurd values are dropped,
+    text is trimmed. Purely informational - it only decorates the dialog, it never decides what is downloaded."""
+    if not isinstance(m, dict):
+        return {}
+    out = {}
+    for k, n in (("site", 40), ("title", 200)):
+        v = m.get(k)
+        if isinstance(v, str) and v.strip():
+            out[k] = re.sub(r"[\x00-\x1f]+", " ", v).strip()[:n]
+    ext = m.get("ext")
+    if isinstance(ext, str) and re.fullmatch(r"[A-Za-z0-9]{1,8}", ext):
+        out["ext"] = ext.lower()
+    for k, hi in (("height", 8640), ("width", 15360), ("duration", 86400 * 3), ("size", 1 << 44)):
+        v = m.get(k)
+        if type(v) in (int, float) and 0 < v <= hi:
+            out[k] = int(v)
+    if m.get("source") in META_SOURCES:
+        out["source"] = m["source"]
+    if m.get("audio") is True:
+        out["audio"] = True
+    return out
+
+
+def capture_summary(meta, kind=None):
+    """The line the capture dialog shows instead of 'Checking...': '1080p - MP4 - 12:34 - about 85.2 MB  (YouTube)'. '' when the browser told us nothing."""
+    m = meta if isinstance(meta, dict) else {}
+    parts = []
+    if m.get("audio"):
+        parts.append("Audio only")
+    elif m.get("height"):
+        parts.append(f"{m['height']}p")
+    if m.get("ext"):
+        parts.append(str(m["ext"]).upper())
+    d = int(m.get("duration") or 0)
+    if d > 0:
+        parts.append(f"{d // 3600}:{d % 3600 // 60:02d}:{d % 60:02d}" if d >= 3600 else f"{d // 60}:{d % 60:02d}")
+    if m.get("size"):
+        parts.append(("about " if m.get("source") in ("page", "yt-dlp") or kind == "ytdlp" else "") + human(m["size"]))
+    if not parts:
+        return ""
+    return " \u00b7 ".join(parts) + (f"   ({m['site']})" if m.get("site") else "")
+
+
 def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=None):
     """Local-only API for the browser extension. Needs the pairing token AND an
     extension Origin (web pages cannot forge Origin) AND a localhost Host header
@@ -4270,8 +4319,16 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
     nothing downloads until the user clicks Start. job = {url, folder, connections, kind, kw}."""
     token = token or get_token(state_dir)
     fcache, fcache_lock = {}, threading.Lock()  # url -> (time, stream list): extraction takes seconds, so repeat opens of the menu reuse it
+    inflight = {}  # url -> {"ev": Event, "res": dict}: a lookup already running for this address; later callers wait for it instead of starting yt-dlp again
 
     class H(http.server.BaseHTTPRequestHandler):
+        # v1.8: HTTP/1.1 keep-alive (the native host reuses one connection), TCP_NODELAY and ONE buffered write per response. With the old
+        # unbuffered writer the headers and the body left as two small segments; on Windows the second waits for the first one's delayed ACK.
+        protocol_version = "HTTP/1.1"
+        disable_nagle_algorithm = True
+        wbufsize = 65536
+        timeout = 60  # an idle keep-alive connection frees its thread after a minute
+
         def log_message(self, *a):
             pass
 
@@ -4290,13 +4347,17 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
             self.send_header("Vary", "Origin")
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
 
         def _auth(self):
             if not self._origin_ok():
+                self.close_connection = True  # the request body (if any) was not read: don't treat it as the next request
                 self._send(403, {"error": "forbidden origin"})
             elif not secrets.compare_digest(self.headers.get("X-OpenDM-Token", ""), token):
+                self.close_connection = True
                 self._send(401, {"error": "bad token"})
             else:
                 return True
@@ -4310,6 +4371,8 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
                 self._send(200, {"app": "OpenDM", "version": 1})
             elif self.path == "/config" and self._auth():
                 self._send(200, browser_config(mgr.settings))  # capture rules for the extension
+            elif self.path not in ("/ping", "/config"):
+                self._send(404, {"error": "not found"})
 
         def _body(self):
             try:
@@ -4320,11 +4383,29 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
                     raise ValueError("unsupported scheme")
                 return d, url
             except (ValueError, KeyError, TypeError):
+                self.close_connection = True
                 self._send(400, {"error": "bad request"})
                 return None, None
 
+        def _formats_payload(self, d, url):
+            """The (slow) lookup itself: a dict {ok, ...}. Never raises."""
+            try:
+                info = ytdlp_formats(url, d.get("referer") or None, d.get("cookie") or None, d.get("userAgent") or None)
+            except IOError as e:
+                return {"ok": False, "error": str(e), "missing": str(e) == YT_MISSING}
+            except Exception as e:
+                return {"ok": False, "error": "yt-dlp could not read this video: " + re.sub(r"\s+", " ", str(e))[:160]}
+            info["ok"] = True
+            with fcache_lock:
+                if len(fcache) > 50:
+                    fcache.clear()
+                fcache[url] = (time.time(), info)
+            return info
+
         def _formats(self):
-            """The video menu in the browser: which qualities does this page offer (via yt-dlp), their sizes, and how fast is this machine's connection."""
+            """The video menu in the browser: which qualities does this page offer (via yt-dlp), their sizes, and how fast is this machine's connection.
+            v1.8: one yt-dlp run per address at a time. The look-ahead (started when the video begins playing) and the menu the user opens a moment later
+            used to start TWO identical extractions; now the second caller waits for the first one's answer."""
             d, url = self._body()
             if d is None:
                 return
@@ -4333,20 +4414,28 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
                 return self._send(200, {"ok": False, "error": "not a video page", "speed": speed})
             with fcache_lock:
                 hit = fcache.get(url)
-            if hit and time.time() - hit[0] < 300:
-                return self._send(200, dict(hit[1], speed=speed))
+                if hit and time.time() - hit[0] < 300:
+                    cached, mine, box = hit[1], False, None
+                else:
+                    cached, box = None, inflight.get(url)
+                    mine = box is None
+                    if mine:
+                        inflight[url] = box = {"ev": threading.Event(), "res": None}
+            if cached is not None:
+                return self._send(200, dict(cached, speed=speed))
+            if not mine:
+                box["ev"].wait(120)
+                res = box["res"] or {"ok": False, "error": "yt-dlp took too long"}
+                return self._send(200, dict(res, speed=speed))
+            res = {"ok": False, "error": "yt-dlp failed"}
             try:
-                info = ytdlp_formats(url, d.get("referer") or None, d.get("cookie") or None, d.get("userAgent") or None)
-            except IOError as e:
-                return self._send(200, {"ok": False, "error": str(e), "missing": str(e) == YT_MISSING, "speed": speed})
-            except Exception as e:
-                return self._send(200, {"ok": False, "error": "yt-dlp could not read this video: " + re.sub(r"\s+", " ", str(e))[:160], "speed": speed})
-            info["ok"] = True
-            with fcache_lock:
-                if len(fcache) > 50:
-                    fcache.clear()
-                fcache[url] = (time.time(), info)
-            self._send(200, dict(info, speed=speed))
+                res = self._formats_payload(d, url)
+            finally:
+                box["res"] = res
+                with fcache_lock:
+                    inflight.pop(url, None)
+                box["ev"].set()
+            self._send(200, dict(res, speed=speed))
 
         def do_POST(self):
             if self.path == "/formats":
@@ -4357,11 +4446,16 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
                 if self._auth():
                     self._send(200, browser_config(mgr.settings))
                 return
-            if self.path != "/add" or not self._auth():
+            if self.path != "/add":
+                self.close_connection = True
+                return self._send(404, {"error": "not found"})
+            if not self._auth():
                 return
             d, url = self._body()
             if d is None:
                 return
+            if d.get("drm") is True:  # the extension already refuses these; a second line of defence, never a bypass
+                return self._send(422, {"error": "DRM-protected content is not downloaded"})
             ts = d.get("ts")  # when the browser says the user started it (ms); old requests are never shown
             if isinstance(ts, (int, float)) and not isinstance(ts, bool) and abs(time.time() - ts / 1000.0) > STALE_CAPTURE_SECS:
                 return self._send(409, {"error": "stale request ignored"})
@@ -4380,7 +4474,8 @@ def start_api(mgr, defaults, port=API_PORT, token=None, state_dir=None, confirm=
                 pick["audio_url"] = audio
             kw = dict(pick, referer=d.get("referer") or None, cookie=d.get("cookie") or None,
                       ua=d.get("userAgent") or None, hint=clean_name(d["filename"]) if d.get("filename") else None)
-            job = {"url": url, "folder": folder, "connections": conns, "kind": "hls" if hls else "ytdlp" if yt else "dash" if dash else "mux" if mux else None, "kw": kw}
+            job = {"url": url, "folder": folder, "connections": conns, "kind": "hls" if hls else "ytdlp" if yt else "dash" if dash else "mux" if mux else None, "kw": kw,
+                   "meta": sanitize_meta(d.get("meta")), "_rx": time.perf_counter()}
             if confirm is not None:
                 confirm(job)
             else:
@@ -4416,7 +4511,7 @@ def write_api_hint(port, state_dir=None):
 NATIVE_HOST_NAME = "org.opendm.nativehost"
 DEFAULT_EXTENSION_IDS = ("jngcdhpgdacflokoombdcimnonfngiff",)  # fixed by the "key" in extension/manifest.json (tools/extension_id.py)
 FIREFOX_EXTENSION_ID = "opendm@alter-xsource404.github.io"                    # the gecko id in extension/manifest.firefox.json
-HOST_JOB_KEYS = ("url", "referer", "filename", "kind", "quality", "bandwidth", "audioUrl", "cookie", "userAgent", "ts")
+HOST_JOB_KEYS = ("url", "referer", "filename", "kind", "quality", "bandwidth", "audioUrl", "cookie", "userAgent", "ts", "meta", "drm")
 MAX_NATIVE_MESSAGE = 1 << 20
 
 # key, label, Windows registry path under HKCU, Linux folder, macOS folder, manifest flavour
@@ -4713,33 +4808,88 @@ class NativeHost:
         d = read_json(os.path.join(self.state_dir, "settings.json"), {})
         return d if isinstance(d, dict) else {}
 
+    def _cached(self, name, load):
+        """Contents of a small state file, re-read only when the file changed (it used to be read from disk on every single message)."""
+        path = os.path.join(self.state_dir, name)
+        try:
+            st = os.stat(path)
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        box = self.__dict__.setdefault("_cache", {})
+        hit = box.get(name)
+        if hit and hit[0] == key and key is not None:
+            return hit[1]
+        val = load()
+        box[name] = (key, val)
+        return val
+
     def port(self):
-        p = read_json(os.path.join(self.state_dir, "api.json"), {}).get("port")
-        return p if isinstance(p, int) and 0 < p < 65536 else API_PORT
+        def load():
+            p = read_json(os.path.join(self.state_dir, "api.json"), {}).get("port")
+            return p if isinstance(p, int) and 0 < p < 65536 else API_PORT
+        return self._cached("api.json", load)
+
+    def token(self):
+        return self._cached("token", lambda: get_token(self.state_dir))
+
+    def _conn(self, port, timeout):
+        """One keep-alive connection to OpenDM's local server per thread (the slow 'formats' lookup runs on its own thread, so it never blocks an 'add')."""
+        tl = self.__dict__.setdefault("_tl", threading.local())
+        c = getattr(tl, "conn", None)
+        if c is None or c.port != port:
+            if c is not None:
+                c.close()
+            c = tl.conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+        return c
+
+    def _drop_conn(self):
+        tl = self.__dict__.setdefault("_tl", threading.local())
+        c = getattr(tl, "conn", None)
+        tl.conn = None
+        if c is not None:
+            try:
+                c.close()
+            except OSError:
+                pass
+
+    def _request(self, method, path, body=None, timeout=10, limit=4 << 20):
+        """(HTTP status, body bytes) of a call to OpenDM's local server; (0, b"") if nothing is listening. Reuses the connection; one retry if the old one went stale."""
+        data = json.dumps(body).encode() if body is not None else None
+        port = self.port()
+        headers = {"X-OpenDM-Token": self.token(), "Content-Type": "application/json"}
+        for attempt in (0, 1):
+            c = self._conn(port, timeout)
+            reused = c.sock is not None
+            try:
+                if reused:
+                    c.sock.settimeout(timeout)
+                else:
+                    c.timeout = timeout
+                c.request(method, path, body=data, headers=headers)
+                r = c.getresponse()
+                raw = r.read(limit)
+                if r.will_close:
+                    self._drop_conn()
+                return r.status, raw
+            except (http.client.HTTPException, OSError):
+                self._drop_conn()
+                if not reused:  # a fresh connection failed: nothing is listening (or it timed out) - retrying would only repeat that
+                    return 0, b""
+        return 0, b""
 
     def _call(self, method, path, body=None):
         """HTTP status of a call to OpenDM's local server (0 if nothing is listening)."""
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port()}{path}", method=method,
-                                     data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"X-OpenDM-Token": get_token(self.state_dir), "Content-Type": "application/json"})
-        try:
-            with self.LOCAL.open(req, timeout=10) as r:
-                return r.status
-        except urllib.error.HTTPError as e:
-            return e.code
-        except (urllib.error.URLError, OSError):
-            return 0
+        return self._request(method, path, body, timeout=10)[0]
 
     def _json_call(self, path, body, timeout=80):
         """(HTTP status, parsed JSON) of a POST to OpenDM's local server; (0, None) if nothing is listening."""
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port()}{path}", method="POST", data=json.dumps(body).encode(),
-                                     headers={"X-OpenDM-Token": get_token(self.state_dir), "Content-Type": "application/json"})
+        code, raw = self._request("POST", path, body, timeout=timeout)
+        if code == 0:
+            return 0, None
         try:
-            with self.LOCAL.open(req, timeout=timeout) as r:
-                return r.status, json.loads(r.read(4 << 20) or b"{}")
-        except urllib.error.HTTPError as e:
-            return e.code, None
-        except (urllib.error.URLError, OSError, ValueError):
+            return code, (json.loads(raw or b"{}") if code == 200 else None)
+        except ValueError:
             return 0, None
 
     def alive(self):
@@ -6269,9 +6419,9 @@ class App:
             self.mgr.add(job["url"], job["folder"], job["connections"], kind=job["kind"], **job["kw"])
 
     def _capture_pump(self):
-        """Look for a captured link every 100 ms (the main tick only runs every 500 ms), so the dialog shows up almost at once."""
+        """Look for a captured link every CAPTURE_PUMP_MS (the main tick only runs every 500 ms), so the dialog shows up almost at once."""
         self._guard(self.drain_captured)
-        self.root.after(100, self._capture_pump)
+        self.root.after(CAPTURE_PUMP_MS, self._capture_pump)
 
     def drain_captured(self):
         # One confirmation window at a time; the rest wait in the queue (and expire if the user never gets to them).
@@ -6335,8 +6485,9 @@ class App:
         if kind == "ytdlp" and not kw.get("hint"):
             guess = ""
         name = tk.StringVar(value=clean_name(guess) if guess else "(taken from the video page)" if kind == "ytdlp" else "(not known yet)")
-        size = tk.StringVar(value={"hls": "Video stream (HLS)", "mux": "Video + audio (merged when done)", "dash": "Video stream (DASH, merged by ffmpeg)",
-                                   "ytdlp": "Video page - best available quality, found by yt-dlp"}.get(kind, "Checking..."))
+        known = capture_summary(job.get("meta"), kind)  # v1.8: quality / format / length / size the browser already knows - shown at once
+        size = tk.StringVar(value=known or {"hls": "Video stream (HLS)", "mux": "Video + audio (merged when done)", "dash": "Video stream (DASH, merged by ffmpeg)",
+                                            "ytdlp": "Video page - best available quality, found by yt-dlp"}.get(kind, "Checking..."))
         body = ttk.Frame(win, padding=14)
         body.pack(fill="both", expand=True)
         for r, (label, var) in enumerate((("Address", None), ("File name", name), ("File size", size))):
@@ -6406,7 +6557,7 @@ class App:
                 n, z = box["r"]
                 if n:
                     name.set(n)
-                size.set(f"{human(z)} ({z:,} Bytes)" if z and z > 0 else "unknown")
+                size.set(f"{human(z)} ({z:,} Bytes)" if z and z > 0 else known or "unknown")
             poll()
 
     def progress_window(self, d):

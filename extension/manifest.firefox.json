@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OpenDM Integration",
-  "version": "1.7.0",
-  "description": "Send downloads from your browser to OpenDM, the open-source download manager.",
+  "version": "1.8.0",
+  "description": "Send downloads and detected media from your browser to OpenDM, the open-source download manager.",
   "permissions": [
     "downloads",
     "contextMenus",
@@ -16,6 +16,9 @@
   ],
   "background": {
     "scripts": [
+      "names.js",
+      "classify.js",
+      "adapters.js",
       "background.js"
     ]
   },
@@ -52,6 +55,8 @@
       ],
       "js": [
         "names.js",
+        "classify.js",
+        "adapters.js",
         "content.js"
       ],
       "run_at": "document_start",

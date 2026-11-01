@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OpenDM Integration",
-  "version": "1.7.0",
-  "description": "Send downloads from your browser to OpenDM, the open-source download manager.",
+  "version": "1.8.0",
+  "description": "Send downloads and detected media from your browser to OpenDM, the open-source download manager.",
   "permissions": [
     "downloads",
     "contextMenus",
@@ -43,12 +43,26 @@
         "<all_urls>"
       ],
       "js": [
+        "page_hook.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
         "names.js",
+        "classify.js",
+        "adapters.js",
         "content.js"
       ],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAswSWKl4x6CMaDvDob5dKXW/OKMssU9kwky2Ii8aG3xm5m56oO10O663wKz4wp/6GuMVGOLUu5SDxTRYwbvH6TFYCUjLlET3MW9vxu2gyhXwHH0VYSjdis/vXUQlmpM0+DeUzhe1yKC1jRrHLyTlbCeGzJJ+Bb3rhJID9oayM3osi3lEjnApWj7wHPWt1zJDX1N53X99fahPeMAjVeVSXAf213nmhYrmtBARcDsZ/T7f8XIg0kZY6H5pr1CkI8561YdG1xBOmsD4dkLl63vt5ONDvoxnPcEzxfhfPGvSGdtM8f0YX/123OyRc995ikAVjq4Jbu6C1DI1QQUjjniM02wIDAQAB"
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAswSWKl4x6CMaDvDob5dKXW/OKMssU9kwky2Ii8aG3xm5m56oO10O663wKz4wp/6GuMVGOLUu5SDxTRYwbvH6TFYCUjLlET3MW9vxu2gyhXwHH0VYSjdis/vXUQlmpM0+DeUzhe1yKC1jRrHLyTlbCeGzJJ+Bb3rhJID9oayM3osi3lEjnApWj7wHPWt1zJDX1N53X99fahPeMAjVeVSXAf213nmhYrmtBARcDsZ/T7f8XIg0kZY6H5pr1CkI8561YdG1xBOmsD4dkLl63vt5ONDvoxnPcEzxfhfPGvSGdtM8f0YX/123OyRc995ikAVjq4Jbu6C1DI1QQUjjniM02wIDAQAB",
+  "minimum_chrome_version": "111"
 }

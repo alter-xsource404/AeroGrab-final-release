@@ -1,5 +1,9 @@
-// OpenDM browser integration (Chrome / Edge / Brave / Firefox, Manifest V3) - v1.7 (one persistent native-messaging connection instead of a new host process per message); v1.6: capture rules come from OpenDM's Configuration; v1.5: audio/video stream pairing, no sniffer panel
+// OpenDM browser integration (Chrome / Edge / Brave / Firefox, Manifest V3) - v1.8: modular detection (classify.js + adapters.js), early YouTube detection, instant push notifications, in-memory tab state; v1.7: one persistent native-messaging connection; v1.6: capture rules from OpenDM's Configuration; v1.5: audio/video stream pairing
 const api = globalThis.browser ?? globalThis.chrome;
+// Shared modules. Chrome/Edge/Brave service worker: importScripts. Firefox: listed in manifest "background.scripts" (already loaded). Node tests: require.
+if (typeof importScripts === "function") { try { importScripts("names.js", "classify.js", "adapters.js"); } catch (e) { console.warn("OpenDM: could not load detection modules", e); } }
+else if (typeof require === "function" && !globalThis.OpenDMClassify) { require("./names.js"); require("./classify.js"); require("./adapters.js"); }
+const CL = globalThis.OpenDMClassify, AD = globalThis.OpenDMAdapters;
 const DEFAULTS = { port: 6800, token: "", intercept: true, minSizeKB: 0 };
 
 const getCfg = async () => ({ ...DEFAULTS, ...(await api.storage.local.get(DEFAULTS)) });
@@ -49,22 +53,41 @@ function viaPort(msg, ms) {
 const nativeCall = (msg, ms = 30000) =>   // 30 s: OpenDM may need time to start
   typeof api.runtime.connectNative === "function" ? viaPort(msg, ms) : withTimeout(Promise.resolve(api.runtime.sendNativeMessage(NATIVE_HOST, msg)), ms);
 
+// Latency of the last hand-overs (browser -> OpenDM's reply), kept for the popup and for measuring: nothing here is estimated.
+const perf = { sends: [], formats: [] };
+const sendFlight = new Map();   // url|quality|kind -> promise: a double click while the first hand-over is still running is the same download
 async function sendToOpenDM(job) {
-  const full = { ...job, ts: Date.now(), cookie: await cookieHeader(job.url), userAgent: navigator.userAgent };
-  let reply = null, nativeError = "";
-  try { reply = await nativeCall({ cmd: "add", job: full }); } catch (e) { nativeError = e?.message || String(e); }  // host not registered / not allowed
-  if (reply) {
-    if (reply.ok) return;
-    throw new Error(reply.error || "OpenDM refused the download");  // OpenDM answered: don't retry another way
+  if (job.drm || drmUrls.has(job.url)) throw new Error("This stream is DRM-protected. OpenDM does not download protected content.");
+  const key = [job.url, job.quality || 0, job.kind || "", job.audioUrl || ""].join("|");
+  const running = sendFlight.get(key);
+  if (running) return running;
+  const p = sendNow(job).finally(() => sendFlight.delete(key));
+  sendFlight.set(key, p);
+  return p;
+}
+async function sendNow(job) {
+  const t0 = performance.now(), rec = { t: Date.now(), kind: job.kind || "file", ok: false, ms: 0 };
+  try {
+    const full = { ...job, ts: Date.now(), cookie: await cookieHeader(job.url), userAgent: navigator.userAgent };
+    let reply = null, nativeError = "";
+    try { reply = await nativeCall({ cmd: "add", job: full }); } catch (e) { nativeError = e?.message || String(e); }  // host not registered / not allowed
+    if (reply) {
+      if (reply.ok) { rec.ok = true; return; }
+      throw new Error(reply.error || "OpenDM refused the download");  // OpenDM answered: don't retry another way
+    }
+    const cfg = await getCfg();
+    if (!cfg.token) throw new Error("not paired: OpenDM's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
+    const r = await fetch(`http://127.0.0.1:${cfg.port}/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenDM-Token": cfg.token },
+      body: JSON.stringify(full),
+    });
+    if (!r.ok) throw new Error("OpenDM replied " + r.status);
+    rec.ok = true;
+  } finally {
+    rec.ms = Math.round(performance.now() - t0);
+    perf.sends.push(rec); if (perf.sends.length > 20) perf.sends.shift();
   }
-  const cfg = await getCfg();
-  if (!cfg.token) throw new Error("not paired: OpenDM's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
-  const r = await fetch(`http://127.0.0.1:${cfg.port}/add`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-OpenDM-Token": cfg.token },
-    body: JSON.stringify(full),
-  });
-  if (!r.ok) throw new Error("OpenDM replied " + r.status);
 }
 
 async function connectionStatus() {
@@ -210,17 +233,20 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
   catch (e) { console.warn(e.message); api.tabs.create({ url: api.runtime.getURL("options.html") }); }
 });
 
-// ---------------- Video detection ("Download this video") ----------------
+// ---------------- Detection: what did this tab load that can be downloaded? ----------------
+// v1.8: classification lives in classify.js, per-site knowledge in adapters.js. Tab state is kept IN MEMORY and written to storage.session a moment
+// later (write-behind), so a detection is announced to the page the instant it happens instead of after a storage round trip.
 const sess = api.storage.session ?? api.storage.local;
-const HLS_CT = /mpegurl/i;
-const DASH_CT = /dash\+xml/i;
-const kindOf = (url) => (/\.m3u8(\?|#|$)/i.test(url) ? "hls" : /\.mpd(\?|#|$)/i.test(url) ? "dash" : "file");
-const FILE_CT = /^(video\/(mp4|webm|x-matroska|quicktime)|audio\/(mpeg|mp4|aac|ogg|webm|flac|wav))/i;
 const hdr = (d, n) => d.responseHeaders?.find((h) => h.name.toLowerCase() === n)?.value ?? "";
+const kindOf = (url) => (/\.m3u8(\?|#|$)/i.test(url) ? "hls" : /\.mpd(\?|#|$)/i.test(url) ? "dash" : "file");
+const CAPS = { media: 40, image: 20, other: 20 };   // per-tab list limits per class, so a page full of thumbnails can't push a video out
+const classOf = (m) => (m.category === "image" ? "image" : m.category === "video" || m.category === "audio" || m.category === "stream" ? "media" : "other");
+const flags = { images: true, push: true };
+api.storage.local.get({ detectImages: true, toast: true }).then((c) => { flags.images = c.detectImages !== false; flags.push = c.toast !== false; }).catch(() => {});
+api.storage.onChanged?.addListener((ch) => { if (ch.detectImages) flags.images = ch.detectImages.newValue !== false; if (ch.toast) flags.push = ch.toast.newValue !== false; });
 
 // FIX (no sound): DASH sites (Facebook, Instagram, Reels, YouTube) serve picture and sound as two separate files.
-// Tag every sniffed file as "video" or "audio" so both halves of one playback can be found and paired.
-//   1) content-type audio/*   2) ?mime=audio/..  (YouTube)   3) ?efg=<base64 json>.vencode_tag (Facebook/Instagram CDN, e.g. "..._audio")
+// Fallback role detection for sites without an adapter:  1) content-type audio/*   2) ?mime=audio/..   3) ?efg=<base64 json>.vencode_tag
 const b64json = (s) => { try { return JSON.parse(atob(s.replace(/-/g, "+").replace(/_/g, "/"))); } catch { return null; } };
 function roleOf(url, ct) {
   if (/^audio\//i.test(ct)) return "audio";
@@ -232,17 +258,59 @@ function roleOf(url, ct) {
   return /^video\//i.test(ct) ? "video" : "unknown";
 }
 
-// FIX (no sound): attach to every video file the audio file that belongs to it (same tab, closest in time to when it was loaded).
+// Attach to every video the audio that belongs to it. YouTube: same container family, best bitrate. Sites that tag a group (Reddit id, ...): same group.
+// Everything else: closest in time within the same frame.
 function withPairs(list) {
-  const audios = list.filter((m) => m.kind === "file" && m.role === "audio");
+  const audios = list.filter((m) => m.kind === "file" && m.role === "audio" && !m.expired);
   if (!audios.length) return list;
   return list.map((m) => {
     if (m.kind !== "file" || m.role !== "video") return m;
-    const best = audios.map((a) => ({ a, d: Math.abs((a.t || 0) - (m.t || 0)) + (a.frameId === m.frameId ? 0 : 5000) })).sort((x, y) => x.d - y.d)[0];
-    return best ? { ...m, audioUrl: best.a.url } : m;
+    let best = null;
+    if (m.site === "youtube") {
+      const want = m.ext === "webm" ? "webm" : "m4a";
+      best = audios.filter((a) => a.site === "youtube").sort((x, y) => (y.ext === want) - (x.ext === want) || (x.itag === 140 ? -1 : 0) - (y.itag === 140 ? -1 : 0) || (y.kbps || 0) - (x.kbps || 0))[0];
+    } else {
+      const pool = m.group && audios.some((a) => a.group === m.group) ? audios.filter((a) => a.group === m.group) : audios;
+      best = pool.map((a) => ({ a, d: Math.abs((a.t || 0) - (m.t || 0)) + (a.frameId === m.frameId ? 0 : 5000) })).sort((x, y) => x.d - y.d)[0]?.a;
+    }
+    return best ? { ...m, audioUrl: best.url } : m;
   });
 }
 
+// ---- per-tab state (memory first)
+const TS = new Map();
+function tabState(tabId) {
+  let s = TS.get(tabId);
+  if (s) return s;
+  s = { list: [], keys: new Map(), page: "", title: "", pageKey: "", saveT: 0, pageAsked: false };
+  TS.set(tabId, s);
+  const k = "media:" + tabId;
+  s.loaded = Promise.resolve(sess.get(k)).then((r) => {   // the service worker was asleep: bring back what it knew
+    const saved = r && r[k];
+    if (!Array.isArray(saved) || !saved.length) return;
+    const have = new Set(s.list.map((m) => m.key));
+    s.list = saved.filter((m) => !have.has(m.key)).concat(s.list);
+    for (const m of s.list) s.keys.set(m.key, m);
+  }).catch(() => {});
+  return s;
+}
+function persist(tabId) {
+  const s = TS.get(tabId);
+  if (!s || s.saveT) return;
+  s.saveT = setTimeout(() => { s.saveT = 0; Promise.resolve(sess.set({ ["media:" + tabId]: s.list.slice(-100) })).catch(() => {}); }, 150);
+}
+function setBadge(tabId) {
+  const s = TS.get(tabId), n = s ? s.list.filter((m) => m.category !== "image" && m.role !== "audio" && m.category !== "other").length : 0;
+  try { api.action.setBadgeText({ tabId, text: n ? String(Math.min(n, 30)) : "" }); if (n) api.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" }); } catch {}
+}
+function resetTab(tabId, keepRecentMs = 0) {
+  const s = TS.get(tabId);
+  if (!s) { sess.remove("media:" + tabId); try { api.action.setBadgeText({ tabId, text: "" }); } catch {} return; }
+  const keep = keepRecentMs ? s.list.filter((m) => Date.now() - (m.t || 0) < keepRecentMs) : [];
+  s.list = keep; s.keys = new Map(keep.map((m) => [m.key, m]));
+  if (keep.length) persist(tabId); else sess.remove("media:" + tabId);
+  setBadge(tabId); notifyPanel(tabId);
+}
 // Saves run one at a time: two videos arriving together must not overwrite each other's list.
 let addQueue = Promise.resolve();
 const addMedia = (tabId, item) => (addQueue = addQueue.then(() => addMediaNow(tabId, item)).catch(() => {}));
@@ -258,55 +326,76 @@ function normalizeUrl(u) {
   } catch { return u; }
 }
 
-const seenMedia = new Map();   // tabId -> Set of normalized URLs already listed: duplicates are dropped before any storage or tab lookup
-function firstSight(tabId, url) {
-  let set = seenMedia.get(tabId);
-  if (!set) seenMedia.set(tabId, (set = new Set()));
-  if (set.has(url)) return false;
-  if (set.size > 200) set.clear();
-  set.add(url);
-  return true;
-}
-async function addMediaNow(tabId, item) {
+// Synchronous core: put the record in the tab's list and announce it. Returns the stored record, or null for a duplicate.
+function ingest(tabId, item) {
+  const s = tabState(tabId);
   const norm = normalizeUrl(item.url);
-  if (!firstSight(tabId, norm)) return;
   if (norm !== item.url) item = { ...item, url: norm, orig: item.url, size: 0 };
-  const key = "media:" + tabId;
-  const cur = (await sess.get(key))[key] ?? [];
-  if (cur.some((m) => m.url === item.url)) return;
-  try { const t = await api.tabs.get(tabId); item.page = t.url; item.title = t.title; } catch {}
-  cur.push(item);
-  await sess.set({ [key]: cur.slice(-30) });
-  api.action.setBadgeText({ tabId, text: String(Math.min(cur.length, 30)) });
-  api.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" });
-  notifyPanel(tabId);
+  // one entry per stream: YouTube hands out a fresh address for the same itag now and then - that refreshes the entry instead of adding one
+  const key = item.key || (item.site === "youtube" && item.itag ? "yt:" + item.itag + ":" + (item.sid || "") : norm);
+  const prev = s.keys.get(key);
+  if (prev) {
+    if (item.site === "youtube" && item.url !== prev.url && (item.expire || 0) >= (prev.expire || 0)) { prev.url = item.url; prev.expire = item.expire; prev.expired = false; prev.t = Date.now(); persist(tabId); }
+    return null;
+  }
+  item = { ...item, key, t: item.t || Date.now(), category: item.category || "video" };
+  if (s.page && !item.page) item.page = s.page;
+  if (s.title && !item.title) item.title = s.title;
+  s.list.push(item); s.keys.set(key, item);
+  const cls = classOf(item), cap = CAPS[cls];
+  const same = s.list.filter((m) => classOf(m) === cls);
+  if (same.length > cap) { const drop = same[0]; s.list.splice(s.list.indexOf(drop), 1); s.keys.delete(drop.key); }
+  persist(tabId); setBadge(tabId);
+  notifyPanel(tabId, item);
+  if (!s.page && !s.pageAsked) {   // page address + title for the referer: asked once per tab, never on the hot path
+    s.pageAsked = true;
+    Promise.resolve(api.tabs.get(tabId)).then((t) => { if (t) { s.page = t.url || s.page; s.title = t.title || s.title; for (const m of s.list) { m.page = m.page || s.page; m.title = m.title || s.title; } persist(tabId); } }).catch(() => {});
+  }
+  if (item.kind === "hls" || item.kind === "dash") prefetchManifest(item.url, item.kind, tabId, key);
+  return item;
 }
+async function addMediaNow(tabId, item) { await tabState(tabId).loaded; ingest(tabId, item); }
 
-api.webRequest.onHeadersReceived.addListener(
-  (d) => {
-    if (d.tabId < 0 || d.statusCode >= 400) return;
-    const ct = hdr(d, "content-type");
-    if (HLS_CT.test(ct) || /\.m3u8(\?|#|$)/i.test(d.url)) {
-      addMedia(d.tabId, { url: d.url, kind: "hls", size: 0 });
-    } else if (DASH_CT.test(ct) || /\.mpd(\?|#|$)/i.test(d.url)) {
-      addMedia(d.tabId, { url: d.url, kind: "dash", size: 0 });  // a DASH manifest: OpenDM hands it to ffmpeg
-    } else if (FILE_CT.test(ct)) {
-      const total = +(hdr(d, "content-range").split("/")[1] || hdr(d, "content-length") || 0);
-      const role = roleOf(d.url, ct);
-      const piece = /[?&](bytestart|byteend)=/.test(d.url);   // a ranged piece of a longer stream: size says nothing, keep it
-      // FIX (no sound): the 2 MB floor used to apply to everything and silently discarded the (small) audio stream.
-      const min = role === "audio" ? 16 * 1024 : 2 * 1024 * 1024;
-      if (piece || total >= min) addMedia(d.tabId, { url: d.url, kind: "file", size: total, role, t: Date.now(), frameId: d.frameId });
-    }
-  },
-  { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] },
-  ["responseHeaders"]
-);
+// ---- early detection: YouTube streams are recognised from the request address alone, before the response headers arrive
+if (api.webRequest.onBeforeRequest) {
+  api.webRequest.onBeforeRequest.addListener((d) => {
+    if (d.tabId < 0) return;
+    const r = AD.describeRequest(d.url);
+    if (!r || r.site !== "youtube" || !r.itag || r.sabr || r.live) return;   // SABR / live pieces carry no stream identity: those videos are listed from the player's own data + yt-dlp
+    ingest(d.tabId, { kind: "file", category: r.role === "audio" ? "audio" : "video", ...r, sid: parseSid(d.url), frameId: d.frameId, page: d.documentUrl || undefined });
+  }, { urls: ["*://*.googlevideo.com/videoplayback*"], types: ["media", "xmlhttprequest", "other"] });
+}
+const parseSid = (u) => { try { return new URL(u).searchParams.get("id") || ""; } catch { return ""; } };
 
+function onHeaders(d) {
+  if (d.tabId < 0 || d.statusCode >= 400) return;
+  if (d.type === "image" && !flags.images) return;
+  const ct = hdr(d, "content-type"), cd = hdr(d, "content-disposition");
+  const total = +(hdr(d, "content-range").split("/")[1] || hdr(d, "content-length") || 0);
+  const c = CL.classifyResponse({ url: d.url, ct, cd, total, type: d.type });
+  if (!c || c.category === "segment") return;
+  if (c.kind === "hls" || c.kind === "dash") return void addMedia(d.tabId, { url: d.url, kind: c.kind, category: "stream", size: 0, ext: c.ext, page: d.documentUrl || undefined, ...(AD.describeRequest(d.url) || {}) });
+  const a = AD.describeRequest(d.url) || {};
+  if (a.site === "youtube") { if (!a.itag || a.sabr || a.live) return; addMedia(d.tabId, { kind: "file", category: a.role === "audio" ? "audio" : "video", ...a, sid: parseSid(d.url), frameId: d.frameId, size: a.size || total }); return; }
+  const role = a.role || (c.category === "video" || c.category === "audio" ? roleOf(d.url, ct) : "");
+  const piece = /[?&](bytestart|byteend)=/.test(d.url);   // a ranged piece of a longer stream: size says nothing, keep it
+  if (!piece && total < CL.minSize(c.category, role, false)) return;
+  if (c.category !== "video" && c.category !== "audio" && c.attachment === false && d.type !== "image" && !c.filename && total < 64 * 1024) return;   // a small API/XHR payload that happens to be a PDF/ZIP-typed blob
+  addMedia(d.tabId, { url: d.url, kind: "file", category: c.category, ext: c.ext, size: total, role, filename: c.filename || "", mime: c.mime, t: Date.now(), frameId: d.frameId, page: d.documentUrl || undefined, ...a, site: a.site || undefined, height: a.height || 0 });
+}
+api.webRequest.onHeadersReceived.addListener(onHeaders, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other", "image"] }, ["responseHeaders"]);
+
+// a hard navigation clears the list; a single-page navigation (YouTube, Instagram reels ...) clears it when the VIDEO changes, keeping anything that loaded in the last second
+const pageKey = (u) => { try { const x = new URL(u); return x.origin + x.pathname + (x.searchParams.get("v") ? "?v=" + x.searchParams.get("v") : ""); } catch { return u || ""; } };
 api.tabs.onUpdated.addListener((id, ci) => {
-  if (ci.status === "loading" && ci.url) { seenMedia.delete(id); sess.remove("media:" + id); api.action.setBadgeText({ tabId: id, text: "" }); notifyPanel(id); }
+  if (!ci.url) return;
+  const k = pageKey(ci.url), s = TS.get(id);
+  if (ci.status === "loading") { if (s) { s.page = ci.url; s.title = ""; s.pageAsked = false; s.pageKey = k; } resetTab(id); return; }
+  if (s && s.pageKey && s.pageKey !== k) { s.pageKey = k; s.page = ci.url; s.title = ""; s.pageAsked = false; resetTab(id, 1000); }
+  else if (s) { s.pageKey = k; s.page = ci.url; }
+  else tabState(id).pageKey = k;
 });
-api.tabs.onRemoved.addListener((id) => { seenMedia.delete(id); sess.remove("media:" + id); });
+api.tabs.onRemoved.addListener((id) => { const s = TS.get(id); if (s?.saveT) clearTimeout(s.saveT); TS.delete(id); sess.remove("media:" + id); });
 
 // ---------------- Quality of direct files: read the MP4 header, not the whole file ----------------
 const u32 = (b, o) => (((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0);
@@ -401,44 +490,76 @@ async function probeMedia(url, orig) {
   return out;
 }
 
-// ---------------- Refresh an open "Download this video" menu when new streams arrive ----------------
-function notifyPanel(tabId) {
+// ---------------- Tell the page (instantly) when something new arrives ----------------
+// The first notification for a tab goes out immediately; anything arriving within the next 40 ms is folded into one more message (YouTube lists ~10 streams at once).
+const nStat = new Map();   // tabId -> { t: timer, dirty, item }
+const brief = (m) => ({ key: m.key, kind: m.kind, category: m.category, role: m.role || "", height: m.height || 0, site: m.site || "", ext: m.ext || "", drm: !!m.drm });
+function pushTo(tabId, item) {
   try { Promise.resolve(api.tabs.sendMessage(tabId, { cmd: "media-updated" }, { frameId: 0 })).catch(() => {}); } catch {}
+  if (item && flags.push && item.category !== "image" && item.role !== "audio") {
+    try { Promise.resolve(api.tabs.sendMessage(tabId, { cmd: "media-found", item: brief(item) }, { frameId: 0 })).catch(() => {}); } catch {}
+  }
 }
-async function listMedia(tabId) { const k = "media:" + tabId; return withPairs((await sess.get(k))[k] ?? []); }  // FIX: items carry audioUrl when a matching audio stream was sniffed
+function notifyPanel(tabId, item) {
+  let n = nStat.get(tabId);
+  if (n) { n.dirty = true; if (item) n.item = item; return; }
+  pushTo(tabId, item);
+  n = { dirty: false, item: null, t: 0 };
+  n.t = setTimeout(() => { nStat.delete(tabId); if (n.dirty) pushTo(tabId, n.item); }, 40);
+  nStat.set(tabId, n);
+}
+async function listMedia(tabId) {
+  const s = tabState(tabId);
+  await s.loaded;
+  const now = Date.now() / 1000;
+  return withPairs(s.list.map((m) => (m.expire && m.expire < now ? { ...m, expired: true } : m)));
+}
 
-// Read the qualities offered by an HLS master playlist (empty list = single-quality stream)
-const vcache = new Map();
-async function getVariants(url) {
-  if (vcache.has(url)) return vcache.get(url);
-  let out = [];
-  try {
-    const r = await fetch(url, { credentials: "include" });
-    const text = r.ok ? await r.text() : "";
-    if (text.includes("#EXT-X-STREAM-INF")) {
-      const lines = text.split(/\r?\n/);
-      lines.forEach((l, i) => {
-        if (!l.startsWith("#EXT-X-STREAM-INF:")) return;
-        const a = Object.fromEntries([...l.slice(18).matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g)].map((m) => [m[1], m[2].replace(/"/g, "")]));
-        const uri = lines.slice(i + 1).find((x) => x.trim() && !x.startsWith("#"));
-        if (uri) out.push({ height: +(a.RESOLUTION?.split("x")[1] || 0), bandwidth: +(a.BANDWIDTH || 0),
-                            fps: a["FRAME-RATE"] ? Math.round(+a["FRAME-RATE"]) : 0, url: new URL(uri.trim(), r.url).href });
-      });
-      const seen = new Set();
-      out = out.filter((v) => !seen.has(v.height + "/" + v.bandwidth) && seen.add(v.height + "/" + v.bandwidth))
-               .sort((x, y) => y.height - x.height || y.bandwidth - x.bandwidth);
-    }
-  } catch { /* leave empty: the panel falls back to "Best available" */ }
-  vcache.set(url, out);
-  return out;
+// ---------------- Manifests: HLS / DASH qualities, audio renditions, DRM check ----------------
+// Fetched once, in the background, the moment a manifest is detected - so the quality list is ready before the user asks for it.
+const mcache = new Map(), drmUrls = new Set();
+function getManifest(url, kind) {
+  const hit = mcache.get(url);
+  if (hit) return hit;
+  const p = (async () => {
+    try {
+      const r = await fetch(url, { credentials: "include" });
+      const text = r.ok ? await r.text() : "";
+      const m = kind === "dash" ? CL.parseMpd(text) : CL.parseHlsMaster(text, r.url || url);
+      if (m.drm) drmUrls.add(url);
+      return { kind, variants: [], audios: [], videos: [], ...m, failed: !text };
+    } catch { return { kind, variants: [], audios: [], videos: [], drm: false, live: false, failed: true }; }
+  })();
+  mcache.set(url, p);
+  p.then((m) => { if (m.failed && mcache.get(url) === p) mcache.delete(url); });   // a failed fetch is retried next time
+  if (mcache.size > 60) mcache.delete(mcache.keys().next().value);
+  return p;
 }
+function prefetchManifest(url, kind, tabId, key) {
+  getManifest(url, kind).then((m) => {
+    const rec = TS.get(tabId)?.keys.get(key);
+    if (!rec || (!m.drm && !m.live)) return;
+    rec.drm = !!m.drm; rec.live = !!m.live; persist(tabId); notifyPanel(tabId, rec);
+  }).catch(() => {});
+}
+const getVariants = async (url) => (await getManifest(url, "hls")).variants;   // [{height,bandwidth,fps,url}] - empty = single-quality stream
 
 // ---------------- Stream list from OpenDM (yt-dlp): YouTube, Facebook, Instagram ... ----------------
 // OpenDM reads the page's qualities and sizes; the answer is cached for a few minutes. Nothing downloads until the user picks a row.
-const fcache = new Map();
+// v1.8: one lookup per address at a time. The look-ahead started when a video begins playing and the menu the user opens a second later used to run yt-dlp TWICE.
+const fcache = new Map(), fflight = new Map();
 async function getFormats(url, referer, prefetch) {
   const hit = fcache.get(url);
   if (hit && Date.now() - hit.t < 5 * 60e3) return hit.data;
+  const running = fflight.get(url);
+  if (running) { const d = await running.p; if (!(d && d.prefetch && !prefetch)) return d; }   // share the answer, unless the look-ahead was told "OpenDM isn't running"
+  const entry = { prefetch, p: null };
+  entry.p = lookupFormats(url, referer, prefetch).finally(() => { if (fflight.get(url) === entry) fflight.delete(url); });
+  fflight.set(url, entry);
+  return entry.p;
+}
+async function lookupFormats(url, referer, prefetch) {
+  const t0 = performance.now();
   const job = { url, referer: referer || "", cookie: await cookieHeader(url), userAgent: navigator.userAgent, ...(prefetch ? { prefetch: true } : {}) };
   let data = null, nativeError = "";
   try { data = await nativeCall({ cmd: "formats", job }, 90000); }  // yt-dlp can take a while
@@ -454,28 +575,32 @@ async function getFormats(url, referer, prefetch) {
     data = await r.json();
   }
   if (data?.prefetch) return data;   // OpenDM isn't running: nothing to cache
-  if (data?.ok && data.formats?.length) fcache.set(url, { t: Date.now(), data });
+  if (data?.ok && data.formats?.length) { fcache.set(url, { t: Date.now(), data }); perf.formats.push({ ms: Math.round(performance.now() - t0), t: Date.now() }); if (perf.formats.length > 20) perf.formats.shift(); }
   if (fcache.size > 40) fcache.delete(fcache.keys().next().value);
   return data;
 }
 
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  const tabId = sender.tab?.id;
+  // a tab's content script, or an extension page (popup) naming the tab it wants
+  const tabId = sender.tab?.id ?? (sender.tab == null && Number.isInteger(msg?.tabId) ? msg.tabId : undefined);
   const reply = (p) => { p.then(sendResponse, (e) => sendResponse({ ok: false, error: e.message })); return true; };
   switch (msg?.cmd) {
     case "gesture": lastGesture = Date.now(); lastMods = { alt: !!msg.alt, ctrl: !!msg.ctrl, shift: !!msg.shift }; return false;   // real click/key in a page (content.js)
     case "cfg": return reply(getCapture(5 * 60e3));   // content.js: should the "Download this video" button show?
     case "send": return reply(sendToOpenDM(msg.job).then(() => ({ ok: true })));
     case "status": return reply(connectionStatus().then((s) => ({ ok: true, ...s })));
+    case "stats": return reply(Promise.resolve({ ok: true, sends: perf.sends.slice(-10), formats: perf.formats.slice(-10) }));
     case "formats":  // the overlay's menu; only for web addresses
       return /^https?:/i.test(msg.url || "") ? reply(getFormats(msg.url, msg.referer, !!msg.prefetch)) : false;
     case "list": return tabId == null ? false : reply(listMedia(tabId));
     case "variants":  // only for streams this tab actually loaded
       return tabId == null ? false : reply(listMedia(tabId).then((l) => (l.some((m) => m.url === msg.url) ? getVariants(msg.url) : [])));
+    case "manifest":  // full manifest facts (audio renditions, DRM flag, live) of a stream this tab loaded
+      return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url && (x.kind === "hls" || x.kind === "dash")); return m ? getManifest(m.url, m.kind) : null; }));
     case "probe":  // quality of a direct file, only for files this tab actually loaded
       return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url); return m ? probeMedia(m.url, m.orig) : null; }));
     case "found":
       if (tabId == null || !/^https?:/i.test(msg.url || "")) return false;
-      return reply(addMedia(tabId, { url: msg.url, kind: kindOf(msg.url), size: 0 }).then(() => ({ ok: true })));
+      return reply(addMedia(tabId, { url: msg.url, kind: kindOf(msg.url), category: kindOf(msg.url) === "file" ? "video" : "stream", size: 0 }).then(() => ({ ok: true })));
   }
 });
