@@ -4,7 +4,7 @@ import http.server, json, os, socket, struct, sys, tempfile, threading, unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import opendm
+import aerograb
 
 
 class Origin(http.server.BaseHTTPRequestHandler):
@@ -105,14 +105,14 @@ class NetCase(unittest.TestCase):
         Origin.seen.clear()
 
     def restore(self):
-        opendm.NET.overwrite, opendm.NET.temp_folder = False, ""
-        opendm.NET.timeout, opendm.NET.retries = 30, 6
+        aerograb.NET.overwrite, aerograb.NET.temp_folder = False, ""
+        aerograb.NET.timeout, aerograb.NET.retries = 30, 6
 
 
 class TestRules(unittest.TestCase):
     def test_capture_decision(self):
-        st = dict(opendm.DEFAULT_SETTINGS)
-        cd = lambda url, name="", forced=False: opendm.capture_decision(st, url, name, forced)
+        st = dict(aerograb.DEFAULT_SETTINGS)
+        cd = lambda url, name="", forced=False: aerograb.capture_decision(st, url, name, forced)
         self.assertTrue(cd("https://x.test/setup.msi") and cd("https://x.test/v.mp4") and cd("https://x.test/doc.pdf"))
         self.assertFalse(cd("https://scontent.fbcdn.net/t39/845976594_n.jpeg") or cd("https://x.test/a.png") or cd("https://x.test/app.js"))   # page images / assets
         self.assertTrue(cd("https://release-assets.githubusercontent.com/github-production-release-asset/1432002929/7b144cf4"))   # no extension -> unknown types
@@ -126,24 +126,24 @@ class TestRules(unittest.TestCase):
         self.assertFalse(cd("ftp://x.test/a.zip") or cd("blob:https://x.test/1"))
 
     def test_images_are_not_a_default_capture_type(self):
-        caps = opendm.split_list(opendm.DEFAULT_SETTINGS["capture_types"])
+        caps = aerograb.split_list(aerograb.DEFAULT_SETTINGS["capture_types"])
         self.assertIn("mp4", caps)
         self.assertNotIn("jpg", caps)
         self.assertNotIn("png", caps)
 
     def test_browser_config_is_clean_and_complete(self):
-        st = dict(opendm.DEFAULT_SETTINGS, key_prevent="bogus", exclude_sites="A.test, *.b.test", min_size_kb="x")
-        cfg = opendm.browser_config(st)
+        st = dict(aerograb.DEFAULT_SETTINGS, key_prevent="bogus", exclude_sites="A.test, *.b.test", min_size_kb="x")
+        cfg = aerograb.browser_config(st)
         self.assertEqual((cfg["key_prevent"], cfg["exclude_sites"], cfg["min_size_kb"]), ("alt", ["a.test", "b.test"], 0))
         self.assertEqual(sorted(cfg["browsers"]), ["brave", "chrome", "edge", "firefox", "other"])
         json.dumps(cfg)
 
     def test_config_endpoint_needs_the_token(self):
-        mgr = opendm.Manager(persist=False)
+        mgr = aerograb.Manager(persist=False)
         mgr.settings["exclude_sites"] = "z.test"
         port = socket.socket(); port.bind(("127.0.0.1", 0)); p = port.getsockname()[1]; port.close()
-        srv = opendm.start_api(mgr, lambda: ("/tmp", 8), port=p, token="tok")
-        req = lambda tok, method: urllib.request.Request(f"http://127.0.0.1:{p}/config", method=method, data=b"{}" if method == "POST" else None, headers={"X-OpenDM-Token": tok})
+        srv = aerograb.start_api(mgr, lambda: ("/tmp", 8), port=p, token="tok")
+        req = lambda tok, method: urllib.request.Request(f"http://127.0.0.1:{p}/config", method=method, data=b"{}" if method == "POST" else None, headers={"X-AeroGrab-Token": tok})
         for method in ("GET", "POST"):
             with urllib.request.urlopen(req("tok", method), timeout=5) as r:
                 self.assertEqual(json.loads(r.read())["exclude_sites"], ["z.test"])
@@ -156,25 +156,25 @@ class TestSystem(NetCase):
     def test_autostart_writes_and_removes_the_entry(self):
         if os.name == "nt":
             self.skipTest("uses the registry on Windows")
-        self.assertEqual(opendm.set_autostart(True, ["/usr/bin/python3", "/opt/my dir/opendm.py", "--minimized"], home=self.tmp), "")
-        path = os.path.join(self.tmp, ".config", "autostart", "opendm.desktop") if sys.platform != "darwin" else os.path.join(self.tmp, "Library", "LaunchAgents", "org.opendm.plist")
+        self.assertEqual(aerograb.set_autostart(True, ["/usr/bin/python3", "/opt/my dir/aerograb.py", "--minimized"], home=self.tmp), "")
+        path = os.path.join(self.tmp, ".config", "autostart", "aerograb.desktop") if sys.platform != "darwin" else os.path.join(self.tmp, "Library", "LaunchAgents", "org.aerograb.plist")
         body = open(path).read()
         self.assertIn("--minimized", body)
         self.assertIn("my dir", body)
-        self.assertEqual(opendm.set_autostart(False, ["x"], home=self.tmp), "")
+        self.assertEqual(aerograb.set_autostart(False, ["x"], home=self.tmp), "")
         self.assertFalse(os.path.exists(path))
 
     def test_temp_folder_and_overwrite(self):
-        opendm.OPENER.configure({"temp_folder": os.path.join(self.tmp, "tmp"), "file_exists": "overwrite"})
-        self.assertEqual(opendm.parts_dir(os.path.join("C:\\x" if os.name == "nt" else "/x", "v.mp4")), os.path.join(self.tmp, "tmp", "v.mp4.parts"))
-        d = opendm.Download("http://x.test/f.bin", self.tmp)
+        aerograb.OPENER.configure({"temp_folder": os.path.join(self.tmp, "tmp"), "file_exists": "overwrite"})
+        self.assertEqual(aerograb.parts_dir(os.path.join("C:\\x" if os.name == "nt" else "/x", "v.mp4")), os.path.join(self.tmp, "tmp", "v.mp4.parts"))
+        d = aerograb.Download("http://x.test/f.bin", self.tmp)
         d.name = "f.bin"
         open(os.path.join(self.tmp, "f.bin"), "wb").write(b"old")
         d._plan()
         self.assertEqual(os.path.basename(d.path), "f.bin")             # replaced, not "f (1).bin"
-        opendm.OPENER.configure({"file_exists": "rename"})
+        aerograb.OPENER.configure({"file_exists": "rename"})
         open(os.path.join(self.tmp, "f.bin"), "wb").write(b"old")
-        d2 = opendm.Download("http://x.test/f.bin", self.tmp)
+        d2 = aerograb.Download("http://x.test/f.bin", self.tmp)
         d2.name = "f.bin"
         d2._plan()
         self.assertEqual(os.path.basename(d2.path), "f (1).bin")
@@ -288,14 +288,14 @@ class TestGui(NetCase):
         ttkm = mock.MagicMock()
         ttkm.Treeview = Tree
         for name, val in (("tk", tkm), ("ttk", ttkm), ("messagebox", mock.MagicMock()), ("filedialog", mock.MagicMock())):
-            p = mock.patch.object(opendm, name, val, create=True)
+            p = mock.patch.object(aerograb, name, val, create=True)
             p.start()
             self.addCleanup(p.stop)
-        p = mock.patch.object(opendm, "get_token", lambda *a: "tok")
+        p = mock.patch.object(aerograb, "get_token", lambda *a: "tok")
         p.start()
         self.addCleanup(p.stop)
-        app = object.__new__(opendm.App)
-        app.mgr, app.root = opendm.Manager(persist=False), mock.MagicMock()
+        app = object.__new__(aerograb.App)
+        app.mgr, app.root = aerograb.Manager(persist=False), mock.MagicMock()
         app.mgr.save_settings = mock.Mock()
         app.folder, app.conns, app.limit_var = Var(os.path.join(self.tmp, "dl")), Var(8), Var(0)
         app.tray, app.set_tray, app.port, app.api_srv, app.note = None, mock.Mock(return_value=""), 6800, True, ("", 0)
@@ -316,7 +316,7 @@ class TestGui(NetCase):
         app.options_dialog()
         self.press(ttkm, "OK")
         self.assertEqual((st["timeout"], st["dup_links"], st["exclude_sites"]), (45, "skip", "x.test"))
-        self.assertTrue(opendm.NET.timeout == 45)
+        self.assertTrue(aerograb.NET.timeout == 45)
         self.assertIn("mp4", st["capture_types"].split())
         self.assertEqual(st["key_prevent"], "alt")
         self.assertEqual(sorted(st["capture_browsers"]), ["brave", "chrome", "edge", "firefox", "other"])
@@ -327,18 +327,18 @@ class TestGui(NetCase):
         app.mgr.settings.update(proxy_mode="manual", proxy_host="", proxy_port=0)
         app.options_dialog()
         self.press(ttkm, "OK")
-        opendm.messagebox.showerror.assert_called_once()
+        aerograb.messagebox.showerror.assert_called_once()
         app.mgr.save_settings.assert_not_called()
 
     def test_duplicates_and_clipboard(self):
         app, _ = self.make_app()
         app.flash = mock.Mock()
         u = "https://x.test/file.zip"
-        dl = opendm.Download(u, self.tmp)
+        dl = aerograb.Download(u, self.tmp)
         app.mgr.items.append(dl)
-        opendm.messagebox.askyesno.return_value = False
+        aerograb.messagebox.askyesno.return_value = False
         self.assertFalse(app.dup_ok(u))                                  # ask -> user says no
-        opendm.messagebox.askyesno.return_value = True
+        aerograb.messagebox.askyesno.return_value = True
         self.assertTrue(app.dup_ok(u))
         app.mgr.settings["dup_links"] = "skip"
         self.assertFalse(app.dup_ok(u))

@@ -1,5 +1,5 @@
 {
-  "name": "opendm-extension-tests",
+  "name": "aerograb-extension-tests",
   "private": true,
   "scripts": { "test": "node background.test.js && node probe.test.js && node native.test.js && node names.test.js && node port.test.js && node classify.test.js && node youtube.test.js && node contentload.test.js" },
   "devDependencies": { "jsdom": "^30.0.0" }

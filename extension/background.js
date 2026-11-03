@@ -1,9 +1,9 @@
-// OpenDM browser integration (Chrome / Edge / Brave / Firefox, Manifest V3) - v1.8: modular detection (classify.js + adapters.js), early YouTube detection, instant push notifications, in-memory tab state; v1.7: one persistent native-messaging connection; v1.6: capture rules from OpenDM's Configuration; v1.5: audio/video stream pairing
+// AeroGrab browser integration (Chrome / Edge / Brave / Firefox, Manifest V3) - v1.8: modular detection (classify.js + adapters.js), early YouTube detection, instant push notifications, in-memory tab state; v1.7: one persistent native-messaging connection; v1.6: capture rules from AeroGrab's Configuration; v1.5: audio/video stream pairing
 const api = globalThis.browser ?? globalThis.chrome;
 // Shared modules. Chrome/Edge/Brave service worker: importScripts. Firefox: listed in manifest "background.scripts" (already loaded). Node tests: require.
-if (typeof importScripts === "function") { try { importScripts("names.js", "classify.js", "adapters.js"); } catch (e) { console.warn("OpenDM: could not load detection modules", e); } }
-else if (typeof require === "function" && !globalThis.OpenDMClassify) { require("./names.js"); require("./classify.js"); require("./adapters.js"); }
-const CL = globalThis.OpenDMClassify, AD = globalThis.OpenDMAdapters;
+if (typeof importScripts === "function") { try { importScripts("names.js", "classify.js", "adapters.js"); } catch (e) { console.warn("AeroGrab: could not load detection modules", e); } }
+else if (typeof require === "function" && !globalThis.AeroGrabClassify) { require("./names.js"); require("./classify.js"); require("./adapters.js"); }
+const CL = globalThis.AeroGrabClassify, AD = globalThis.AeroGrabAdapters;
 const DEFAULTS = { port: 6800, token: "", intercept: true, minSizeKB: 0 };
 
 const getCfg = async () => ({ ...DEFAULTS, ...(await api.storage.local.get(DEFAULTS)) });
@@ -15,13 +15,13 @@ async function cookieHeader(url) {
   } catch { return ""; }
 }
 
-// ---- talking to OpenDM -------------------------------------------------------------------
-// Preferred: the native-messaging host that OpenDM registers with the browser by itself. It needs no port and no
-// pairing token, only trusts this extension's ID, and starts OpenDM if it isn't running.
+// ---- talking to AeroGrab -------------------------------------------------------------------
+// Preferred: the native-messaging host that AeroGrab registers with the browser by itself. It needs no port and no
+// pairing token, only trusts this extension's ID, and starts AeroGrab if it isn't running.
 // Fallback: the local server on 127.0.0.1 with a pairing token pasted into the options page.
-const NATIVE_HOST = "org.opendm.nativehost";
+const NATIVE_HOST = "org.aerograb.nativehost";
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), ms))]);
-// v1.7: sendNativeMessage starts a NEW host process for every message (for a packaged OpenDM that means unpacking and starting the whole
+// v1.7: sendNativeMessage starts a NEW host process for every message (for a packaged AeroGrab that means unpacking and starting the whole
 // program each time: seconds). connectNative keeps one host process alive; messages carry an id, the host echoes it, so calls can overlap
 // (a slow "formats" lookup never blocks a download hand-over). Falls back to sendNativeMessage where connectNative doesn't exist.
 let nPort = null, nSeq = 0;
@@ -50,14 +50,14 @@ function viaPort(msg, ms) {
     try { post(); } catch { nPort = null; try { post(); } catch (e) { nPending.delete(id); clearTimeout(t); rej(e); } }   // a stale port: reconnect once
   });
 }
-const nativeCall = (msg, ms = 30000) =>   // 30 s: OpenDM may need time to start
+const nativeCall = (msg, ms = 30000) =>   // 30 s: AeroGrab may need time to start
   typeof api.runtime.connectNative === "function" ? viaPort(msg, ms) : withTimeout(Promise.resolve(api.runtime.sendNativeMessage(NATIVE_HOST, msg)), ms);
 
-// Latency of the last hand-overs (browser -> OpenDM's reply), kept for the popup and for measuring: nothing here is estimated.
+// Latency of the last hand-overs (browser -> AeroGrab's reply), kept for the popup and for measuring: nothing here is estimated.
 const perf = { sends: [], formats: [] };
 const sendFlight = new Map();   // url|quality|kind -> promise: a double click while the first hand-over is still running is the same download
-async function sendToOpenDM(job) {
-  if (job.drm || drmUrls.has(job.url)) throw new Error("This stream is DRM-protected. OpenDM does not download protected content.");
+async function sendToAeroGrab(job) {
+  if (job.drm || drmUrls.has(job.url)) throw new Error("This stream is DRM-protected. AeroGrab does not download protected content.");
   const key = [job.url, job.quality || 0, job.kind || "", job.audioUrl || ""].join("|");
   const running = sendFlight.get(key);
   if (running) return running;
@@ -73,16 +73,16 @@ async function sendNow(job) {
     try { reply = await nativeCall({ cmd: "add", job: full }); } catch (e) { nativeError = e?.message || String(e); }  // host not registered / not allowed
     if (reply) {
       if (reply.ok) { rec.ok = true; return; }
-      throw new Error(reply.error || "OpenDM refused the download");  // OpenDM answered: don't retry another way
+      throw new Error(reply.error || "AeroGrab refused the download");  // AeroGrab answered: don't retry another way
     }
     const cfg = await getCfg();
-    if (!cfg.token) throw new Error("not paired: OpenDM's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
+    if (!cfg.token) throw new Error("not paired: AeroGrab's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
     const r = await fetch(`http://127.0.0.1:${cfg.port}/add`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-OpenDM-Token": cfg.token },
+      headers: { "Content-Type": "application/json", "X-AeroGrab-Token": cfg.token },
       body: JSON.stringify(full),
     });
-    if (!r.ok) throw new Error("OpenDM replied " + r.status);
+    if (!r.ok) throw new Error("AeroGrab replied " + r.status);
     rec.ok = true;
   } finally {
     rec.ms = Math.round(performance.now() - t0);
@@ -97,16 +97,16 @@ async function connectionStatus() {
   const cfg = await getCfg();
   if (cfg.token) {
     try {
-      const r = await fetch(`http://127.0.0.1:${cfg.port}/ping`, { headers: { "X-OpenDM-Token": cfg.token } });
-      return r.ok ? { mode: "manual", running: true } : { mode: "none", error: r.status === 401 ? "Wrong pairing token" : "OpenDM replied " + r.status };
+      const r = await fetch(`http://127.0.0.1:${cfg.port}/ping`, { headers: { "X-AeroGrab-Token": cfg.token } });
+      return r.ok ? { mode: "manual", running: true } : { mode: "none", error: r.status === 401 ? "Wrong pairing token" : "AeroGrab replied " + r.status };
     } catch { /* not running */ }
   }
-  return { mode: "none", error: nativeError || "OpenDM's browser integration isn't registered yet" };
+  return { mode: "none", error: nativeError || "AeroGrab's browser integration isn't registered yet" };
 }
 
-// ---------------- Which downloads does OpenDM take over? (rules live in OpenDM > Options > Configuration) ----------------
-// OpenDM hands its rules over on request (native host "config", or POST /config with the pairing token). The last answer is kept, so the rules
-// still apply while OpenDM isn't running. Until the first answer these built-in defaults apply: images and web files are never captured.
+// ---------------- Which downloads does AeroGrab take over? (rules live in AeroGrab > Options > Configuration) ----------------
+// AeroGrab hands its rules over on request (native host "config", or POST /config with the pairing token). The last answer is kept, so the rules
+// still apply while AeroGrab isn't running. Until the first answer these built-in defaults apply: images and web files are never captured.
 const DEFAULT_CAP = {
   intercept: true, capture_types: [], capture_unknown: true, exclude_sites: [], min_size_kb: 0, key_prevent: "alt", key_force: "none", browsers: {},
   skip_types: "jpg jpeg png gif webp bmp svg ico avif heic tif tiff css js mjs map html htm json xml woff woff2 ttf otf".split(" "),
@@ -116,8 +116,8 @@ let capCache = { t: 0, cfg: null };
 
 async function buildMenus(cap) {
   try { await api.contextMenus.removeAll?.(); } catch {}
-  if (cap.ctx_link !== false) api.contextMenus.create({ id: "dl-link", title: "Download link with OpenDM", contexts: ["link"] });
-  if (cap.ctx_media !== false) api.contextMenus.create({ id: "dl-media", title: "Download media with OpenDM", contexts: ["video", "audio", "image"] });
+  if (cap.ctx_link !== false) api.contextMenus.create({ id: "dl-link", title: "Download link with AeroGrab", contexts: ["link"] });
+  if (cap.ctx_media !== false) api.contextMenus.create({ id: "dl-media", title: "Download media with AeroGrab", contexts: ["video", "audio", "image"] });
 }
 
 async function getCapture(maxAge = 60e3) {
@@ -128,7 +128,7 @@ async function getCapture(maxAge = 60e3) {
     try {
       const c = await getCfg();
       if (c.token) {
-        const r = await fetch(`http://127.0.0.1:${c.port}/config`, { method: "POST", headers: { "Content-Type": "application/json", "X-OpenDM-Token": c.token }, body: "{}" });
+        const r = await fetch(`http://127.0.0.1:${c.port}/config`, { method: "POST", headers: { "Content-Type": "application/json", "X-AeroGrab-Token": c.token }, body: "{}" });
         if (r.ok) fresh = await r.json();
       }
     } catch {}
@@ -148,7 +148,7 @@ const hostMatch = (host, pats) => (pats || []).some((p) => {
   const q = p.replace(/^\*\./, "");
   return host === q || host.endsWith("." + q) || (p.includes("*") && new RegExp("^" + p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$").test(host));
 });
-// Same rules as OpenDM's capture_decision(): excluded site -> no; skip list -> no; capture list -> yes; anything else -> "unknown types" switch.
+// Same rules as AeroGrab's capture_decision(): excluded site -> no; skip list -> no; capture list -> yes; anything else -> "unknown types" switch.
 function captureAllowed(cap, url, filename, forced) {
   let u; try { u = new URL(url); } catch { return false; }
   if (!forced && hostMatch(u.hostname.toLowerCase(), cap.exclude_sites)) return false;
@@ -173,7 +173,7 @@ async function browserName() {
 // gesture (or a typed address), not be a duplicate, and not be part of a burst. Anything else is left to the browser, untouched.
 const GESTURE_MS = 20e3, FRESH_MS = 15e3, DEDUPE_MS = 60e3, BURST_N = 3, BURST_MS = 10e3;
 let lastGesture = 0, lastMods = {};
-const recentUrls = new Map();   // url -> time OpenDM was last offered it
+const recentUrls = new Map();   // url -> time AeroGrab was last offered it
 const burstTimes = [];
 
 async function windowFocused() {
@@ -202,34 +202,34 @@ api.downloads.onCreated.addListener(async (item) => {
   const url = item.finalUrl || item.url;
   if (!cfg.intercept || !/^https?:/i.test(url)) return;
   const cap = await getCapture();
-  if (!cap.intercept) return;                                             // "Capture downloads from browsers" is off in OpenDM
-  if (cap.browsers && cap.browsers[await browserName()] === false) return; // this browser is switched off in OpenDM
+  if (!cap.intercept) return;                                             // "Capture downloads from browsers" is off in AeroGrab
+  if (cap.browsers && cap.browsers[await browserName()] === false) return; // this browser is switched off in AeroGrab
   const fresh = Date.now() - lastGesture < GESTURE_MS, held = (k) => fresh && k && k !== "none" && !!lastMods[k];
   if (held(cap.key_prevent)) return;                                      // the "let the browser do it" key was held
   if (!captureAllowed(cap, url, item.filename, held(cap.key_force))) return;   // file type / excluded site
   const minKB = Math.max(cfg.minSizeKB || 0, cap.min_size_kb || 0);
   if (minKB && item.fileSize > 0 && item.fileSize < minKB * 1024) return;
   if (!(await shouldCapture(item, url))) return;                          // not the user's download: leave it to the browser
-  try { await api.downloads.pause(item.id); } catch {}  // keep the browser's copy from finishing while OpenDM (maybe starting up) takes over
+  try { await api.downloads.pause(item.id); } catch {}  // keep the browser's copy from finishing while AeroGrab (maybe starting up) takes over
   try {
     const name = item.filename ? item.filename.split(/[\\/]/).pop() : "";
-    await sendToOpenDM({ url, referer: item.referrer || "", filename: name });
+    await sendToAeroGrab({ url, referer: item.referrer || "", filename: name });
     await api.downloads.cancel(item.id);
     await api.downloads.erase({ id: item.id });
   } catch (e) {
-    console.warn("OpenDM unavailable, browser will download it:", e.message);
-    try { await api.downloads.resume(item.id); } catch {}  // OpenDM couldn't take it: let the browser carry on
+    console.warn("AeroGrab unavailable, browser will download it:", e.message);
+    try { await api.downloads.resume(item.id); } catch {}  // AeroGrab couldn't take it: let the browser carry on
   }
 });
 
-// Right-click menus (which ones exist is decided in OpenDM's Configuration)
+// Right-click menus (which ones exist is decided in AeroGrab's Configuration)
 api.runtime.onInstalled.addListener(() => buildMenus(DEFAULT_CAP));
 api.runtime.onStartup?.addListener(() => getCapture(0).catch(() => {}));   // also opens the native connection ahead of the first capture
 getCapture(0).catch(() => {});   // service worker (re)started: warm the host process and the capture rules now, not at the first download
 api.contextMenus.onClicked.addListener(async (info, tab) => {
   const url = info.linkUrl || info.srcUrl;
   if (!url) return;
-  try { await sendToOpenDM({ url, referer: info.pageUrl || tab?.url || "" }); }
+  try { await sendToAeroGrab({ url, referer: info.pageUrl || tab?.url || "" }); }
   catch (e) { console.warn(e.message); api.tabs.create({ url: api.runtime.getURL("options.html") }); }
 });
 
@@ -367,9 +367,22 @@ if (api.webRequest.onBeforeRequest) {
 }
 const parseSid = (u) => { try { return new URL(u).searchParams.get("id") || ""; } catch { return ""; } };
 
+// v1.8.1: requests made by a worker / service worker of the page carry no tab id; find the tab by the page that started them
+const originTab = new Map();
+async function resolveTab(d) {
+  if (!d.initiator || !/^https?:/i.test(d.initiator)) return -1;
+  const hit = originTab.get(d.initiator);
+  if (hit && Date.now() - hit.t < 30e3) return hit.id;
+  let id = -1;
+  try { const tabs = (await api.tabs.query({ url: d.initiator + "/*" })) || []; const t = tabs.find((x) => x.active) || tabs[0]; if (t) id = t.id; } catch {}
+  originTab.set(d.initiator, { id, t: Date.now() }); if (originTab.size > 50) originTab.delete(originTab.keys().next().value);
+  return id;
+}
 function onHeaders(d) {
-  if (d.tabId < 0 || d.statusCode >= 400) return;
+  if (d.tabId < 0) { if (d.statusCode < 400) resolveTab(d).then((id) => { if (id >= 0) onHeaders({ ...d, tabId: id }); }).catch(() => {}); return; }
+  if (d.statusCode >= 400) return;
   if (d.type === "image" && !flags.images) return;
+  if ((d.type === "main_frame" || d.type === "sub_frame") && /^text\/html|^application\/xhtml/i.test(hdr(d, "content-type"))) return;   // a normal web page, not a file
   const ct = hdr(d, "content-type"), cd = hdr(d, "content-disposition");
   const total = +(hdr(d, "content-range").split("/")[1] || hdr(d, "content-length") || 0);
   const c = CL.classifyResponse({ url: d.url, ct, cd, total, type: d.type });
@@ -379,11 +392,11 @@ function onHeaders(d) {
   if (a.site === "youtube") { if (!a.itag || a.sabr || a.live) return; addMedia(d.tabId, { kind: "file", category: a.role === "audio" ? "audio" : "video", ...a, sid: parseSid(d.url), frameId: d.frameId, size: a.size || total }); return; }
   const role = a.role || (c.category === "video" || c.category === "audio" ? roleOf(d.url, ct) : "");
   const piece = /[?&](bytestart|byteend)=/.test(d.url);   // a ranged piece of a longer stream: size says nothing, keep it
-  if (!piece && total < CL.minSize(c.category, role, false)) return;
+  if (!piece && total > 0 && total < CL.minSize(c.category, role, false)) return;   // v1.8.1: an unknown size (chunked reply) is kept - it used to count as 0 bytes and was dropped
   if (c.category !== "video" && c.category !== "audio" && c.attachment === false && d.type !== "image" && !c.filename && total < 64 * 1024) return;   // a small API/XHR payload that happens to be a PDF/ZIP-typed blob
   addMedia(d.tabId, { url: d.url, kind: "file", category: c.category, ext: c.ext, size: total, role, filename: c.filename || "", mime: c.mime, t: Date.now(), frameId: d.frameId, page: d.documentUrl || undefined, ...a, site: a.site || undefined, height: a.height || 0 });
 }
-api.webRequest.onHeadersReceived.addListener(onHeaders, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other", "image"] }, ["responseHeaders"]);
+api.webRequest.onHeadersReceived.addListener(onHeaders, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other", "image", "main_frame", "sub_frame", "object"] }, ["responseHeaders"]);
 
 // a hard navigation clears the list; a single-page navigation (YouTube, Instagram reels ...) clears it when the VIDEO changes, keeping anything that loaded in the last second
 const pageKey = (u) => { try { const x = new URL(u); return x.origin + x.pathname + (x.searchParams.get("v") ? "?v=" + x.searchParams.get("v") : ""); } catch { return u || ""; } };
@@ -396,6 +409,21 @@ api.tabs.onUpdated.addListener((id, ci) => {
   else tabState(id).pageKey = k;
 });
 api.tabs.onRemoved.addListener((id) => { const s = TS.get(id); if (s?.saveT) clearTimeout(s.saveT); TS.delete(id); sess.remove("media:" + id); });
+
+// v1.8.1: many CDNs refuse a request without the page's Referer / Origin, and an extension's own fetch() cannot set them. A short-lived session rule
+// (declarativeNetRequest, exactly this one address) adds them, so quality lists and file probes work on referer-protected hosts too.
+let ruleSeq = 0;
+async function withReferer(url, referer, fn) {
+  const dnr = api.declarativeNetRequest;
+  if (!dnr || !dnr.updateSessionRules || !/^https?:/i.test(referer || "") || url.length > 1500) return fn();
+  const id = 1000 + (++ruleSeq % 50000);
+  try {
+    await dnr.updateSessionRules({ addRules: [{ id, priority: 1, action: { type: "modifyHeaders", requestHeaders: [
+      { header: "referer", operation: "set", value: referer }, { header: "origin", operation: "set", value: new URL(referer).origin }] },
+      condition: { regexFilter: "^" + url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", resourceTypes: ["xmlhttprequest", "other"], tabIds: [-1] } }] });
+  } catch { return fn(); }
+  try { return await fn(); } finally { try { await dnr.updateSessionRules({ removeRuleIds: [id] }); } catch {} }
+}
 
 // ---------------- Quality of direct files: read the MP4 header, not the whole file ----------------
 const u32 = (b, o) => (((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0);
@@ -479,11 +507,11 @@ async function probeMp4(url) {
 }
 
 const pcache = new Map();
-async function probeMedia(url, orig) {
+async function probeMedia(url, orig, referer) {
   if (pcache.has(url)) return pcache.get(url);
   let out = null;
   for (const u of orig ? [url, orig] : [url]) {  // if the cleaned-up URL doesn't work, fall back to the original
-    try { out = await probeMp4(u); } catch { out = null; }
+    try { out = await withReferer(u, referer, () => probeMp4(u)); } catch { out = null; }
     if (out) { out.useUrl = u; break; }
   }
   pcache.set(url, out);
@@ -518,14 +546,14 @@ async function listMedia(tabId) {
 // ---------------- Manifests: HLS / DASH qualities, audio renditions, DRM check ----------------
 // Fetched once, in the background, the moment a manifest is detected - so the quality list is ready before the user asks for it.
 const mcache = new Map(), drmUrls = new Set();
-function getManifest(url, kind) {
+function getManifest(url, kind, referer) {
   const hit = mcache.get(url);
   if (hit) return hit;
   const p = (async () => {
     try {
-      const r = await fetch(url, { credentials: "include" });
-      const text = r.ok ? await r.text() : "";
-      const m = kind === "dash" ? CL.parseMpd(text) : CL.parseHlsMaster(text, r.url || url);
+      const text = await withReferer(url, referer, async () => { const r = await fetch(url, { credentials: "include" }); return r.ok ? await r.text() : ""; });
+      const r = { url };
+      const m = kind === "dash" ? CL.parseMpd(text) : CL.parseHlsMaster(text, url);
       if (m.drm) drmUrls.add(url);
       return { kind, variants: [], audios: [], videos: [], ...m, failed: !text };
     } catch { return { kind, variants: [], audios: [], videos: [], drm: false, live: false, failed: true }; }
@@ -536,23 +564,24 @@ function getManifest(url, kind) {
   return p;
 }
 function prefetchManifest(url, kind, tabId, key) {
-  getManifest(url, kind).then((m) => {
+  const rec0 = TS.get(tabId)?.keys.get(key);
+  getManifest(url, kind, (rec0 && rec0.page) || TS.get(tabId)?.page).then((m) => {
     const rec = TS.get(tabId)?.keys.get(key);
     if (!rec || (!m.drm && !m.live)) return;
     rec.drm = !!m.drm; rec.live = !!m.live; persist(tabId); notifyPanel(tabId, rec);
   }).catch(() => {});
 }
-const getVariants = async (url) => (await getManifest(url, "hls")).variants;   // [{height,bandwidth,fps,url}] - empty = single-quality stream
+const getVariants = async (url, referer) => (await getManifest(url, "hls", referer)).variants;   // [{height,bandwidth,fps,url}] - empty = single-quality stream
 
-// ---------------- Stream list from OpenDM (yt-dlp): YouTube, Facebook, Instagram ... ----------------
-// OpenDM reads the page's qualities and sizes; the answer is cached for a few minutes. Nothing downloads until the user picks a row.
+// ---------------- Stream list from AeroGrab (yt-dlp): YouTube, Facebook, Instagram ... ----------------
+// AeroGrab reads the page's qualities and sizes; the answer is cached for a few minutes. Nothing downloads until the user picks a row.
 // v1.8: one lookup per address at a time. The look-ahead started when a video begins playing and the menu the user opens a second later used to run yt-dlp TWICE.
 const fcache = new Map(), fflight = new Map();
 async function getFormats(url, referer, prefetch) {
   const hit = fcache.get(url);
   if (hit && Date.now() - hit.t < 5 * 60e3) return hit.data;
   const running = fflight.get(url);
-  if (running) { const d = await running.p; if (!(d && d.prefetch && !prefetch)) return d; }   // share the answer, unless the look-ahead was told "OpenDM isn't running"
+  if (running) { const d = await running.p; if (!(d && d.prefetch && !prefetch)) return d; }   // share the answer, unless the look-ahead was told "AeroGrab isn't running"
   const entry = { prefetch, p: null };
   entry.p = lookupFormats(url, referer, prefetch).finally(() => { if (fflight.get(url) === entry) fflight.delete(url); });
   fflight.set(url, entry);
@@ -566,15 +595,15 @@ async function lookupFormats(url, referer, prefetch) {
   catch (e) { nativeError = e?.message || String(e); }
   if (!data) {
     const cfg = await getCfg();
-    if (!cfg.token) throw new Error("not paired: OpenDM's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
+    if (!cfg.token) throw new Error("not paired: AeroGrab's browser integration isn't registered yet" + (nativeError ? ` (${nativeError})` : ""));
     if (prefetch) return { ok: false, error: "prefetch skipped", prefetch: true };
     const r = await fetch(`http://127.0.0.1:${cfg.port}/formats`, {
-      method: "POST", headers: { "Content-Type": "application/json", "X-OpenDM-Token": cfg.token }, body: JSON.stringify(job),
+      method: "POST", headers: { "Content-Type": "application/json", "X-AeroGrab-Token": cfg.token }, body: JSON.stringify(job),
     });
-    if (!r.ok) throw new Error("OpenDM replied " + r.status);
+    if (!r.ok) throw new Error("AeroGrab replied " + r.status);
     data = await r.json();
   }
-  if (data?.prefetch) return data;   // OpenDM isn't running: nothing to cache
+  if (data?.prefetch) return data;   // AeroGrab isn't running: nothing to cache
   if (data?.ok && data.formats?.length) { fcache.set(url, { t: Date.now(), data }); perf.formats.push({ ms: Math.round(performance.now() - t0), t: Date.now() }); if (perf.formats.length > 20) perf.formats.shift(); }
   if (fcache.size > 40) fcache.delete(fcache.keys().next().value);
   return data;
@@ -587,18 +616,18 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg?.cmd) {
     case "gesture": lastGesture = Date.now(); lastMods = { alt: !!msg.alt, ctrl: !!msg.ctrl, shift: !!msg.shift }; return false;   // real click/key in a page (content.js)
     case "cfg": return reply(getCapture(5 * 60e3));   // content.js: should the "Download this video" button show?
-    case "send": return reply(sendToOpenDM(msg.job).then(() => ({ ok: true })));
+    case "send": return reply(sendToAeroGrab(msg.job).then(() => ({ ok: true })));
     case "status": return reply(connectionStatus().then((s) => ({ ok: true, ...s })));
     case "stats": return reply(Promise.resolve({ ok: true, sends: perf.sends.slice(-10), formats: perf.formats.slice(-10) }));
     case "formats":  // the overlay's menu; only for web addresses
       return /^https?:/i.test(msg.url || "") ? reply(getFormats(msg.url, msg.referer, !!msg.prefetch)) : false;
     case "list": return tabId == null ? false : reply(listMedia(tabId));
     case "variants":  // only for streams this tab actually loaded
-      return tabId == null ? false : reply(listMedia(tabId).then((l) => (l.some((m) => m.url === msg.url) ? getVariants(msg.url) : [])));
+      return tabId == null ? false : reply(listMedia(tabId).then((l) => (l.some((m) => m.url === msg.url) ? getVariants(msg.url, (l.find((m) => m.url === msg.url) || {}).page) : [])));
     case "manifest":  // full manifest facts (audio renditions, DRM flag, live) of a stream this tab loaded
-      return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url && (x.kind === "hls" || x.kind === "dash")); return m ? getManifest(m.url, m.kind) : null; }));
+      return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url && (x.kind === "hls" || x.kind === "dash")); return m ? getManifest(m.url, m.kind, m.page) : null; }));
     case "probe":  // quality of a direct file, only for files this tab actually loaded
-      return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url); return m ? probeMedia(m.url, m.orig) : null; }));
+      return tabId == null ? false : reply(listMedia(tabId).then((l) => { const m = l.find((x) => x.url === msg.url); return m ? probeMedia(m.url, m.orig, m.page) : null; }));
     case "found":
       if (tabId == null || !/^https?:/i.test(msg.url || "")) return false;
       return reply(addMedia(tabId, { url: msg.url, kind: kindOf(msg.url), category: kindOf(msg.url) === "file" ? "video" : "stream", size: 0 }).then(() => ({ ok: true })));

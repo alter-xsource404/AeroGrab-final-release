@@ -79,7 +79,7 @@ for (const f of ["names.js", "content.js"]) require("vm").runInThisContext(fs.re
   assert(ov.classList.contains("open"), "a click opens the menu");
   await tick(); await tick(); flush();
   const fm = sent.find((m) => m.cmd === "formats");
-  assert(fm && fm.url === "https://www.youtube.com/watch?v=abc", "asks OpenDM (yt-dlp) for this page's qualities");
+  assert(fm && fm.url === "https://www.youtube.com/watch?v=abc", "asks AeroGrab (yt-dlp) for this page's qualities");
   const rows = ov.find((e) => e.className === "q");
   assert.deepStrictEqual(rows.map((r) => r.children[0].textContent), ["1080p60", "720p", "Audio only"]);
   assert(/49\.6 MB · ~26 s/.test(rows[0].children[2].textContent) && /~/.test(rows[0].children[2].textContent), "size and ETA: " + rows[0].children[2].textContent);

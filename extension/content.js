@@ -1,19 +1,19 @@
-// OpenDM content script - v1.8 (instant capture tip, hover button, YouTube quality list from the player's own data, no polling timers; v1.7: file names via names.js + page caption)
+// AeroGrab content script - v1.8 (instant capture tip, hover button, YouTube quality list from the player's own data, no polling timers; v1.7: file names via names.js + page caption)
 // ONLY the IDM-style "Download this video" button on playing <video> elements (drag it, double-click resets, x hides it for that video).
-// FIX (#2): the "OpenDM Video Sniffer" floating panel/bubble was removed completely.
-// FIX (no sound): the menu now lists yt-dlp's formats (video+audio merged by OpenDM/ffmpeg) whenever the page is supported;
+// FIX (#2): the "AeroGrab Video Sniffer" floating panel/bubble was removed completely.
+// FIX (no sound): the menu now lists yt-dlp's formats (video+audio merged by AeroGrab/ffmpeg) whenever the page is supported;
 //   raw sniffed streams are only a fallback and are always sent together with their paired audio stream (job.audioUrl).
 // Runs in every frame. Everything lives in a closed shadow root, so page styles can't touch it.
 (() => {
   "use strict";
-  if (window.__opendmSniffer || !document.documentElement) return;
-  window.__opendmSniffer = true;
+  if (window.__aerograbSniffer || !document.documentElement) return;
+  window.__aerograbSniffer = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
 
   // FIX (phantom downloads): tell the background script when the user really interacts with this page, so only downloads
   // that follow a real click/key/right-click are taken over. Scripts cannot fake these (isTrusted).
-  // The held modifier keys ride along: they are the "prevent / force downloading with OpenDM" keys from OpenDM's Configuration.
+  // The held modifier keys ride along: they are the "prevent / force downloading with AeroGrab" keys from AeroGrab's Configuration.
   let lastGesture = 0;
   const gesture = (e) => {
     if (!e.isTrusted || (e.type !== "pointerdown" && Date.now() - lastGesture < 300)) return;
@@ -21,7 +21,7 @@
     try { Promise.resolve(api.runtime.sendMessage({ cmd: "gesture", alt: e.altKey, ctrl: e.ctrlKey, shift: e.shiftKey })).catch(() => {}); } catch {}
   };
   for (const t of ["pointerdown", "keydown", "contextmenu", "touchstart"]) addEventListener(t, gesture, { capture: true, passive: true });
-  const ICON = "data:image/png;base64,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";
+  /* ICON-BEGIN */ const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAO50lEQVR42sWaW4xd11nHf9/al3POzJxz5mKP755xbCe2i+sk0LRVmzoJckqbCh6Ii4RAhEIbpL4g8cILCnngqUAEVEItVBQqSqtUSUsbamjT2LnaIYmjxiSO7Vx8jZPYY3tmzmVf1vp4WPtcZ2xHfemWlvY+66y9zndb//X/vnXgmtcDht0PhPyyrt0PhLA3uNYQuXr/XgMP287nFdv+dHWCqaJWVFsCMaj172tbSP1A1aDoc4Nzi1H/kCISKDEgZd8ngfr+igLE5AsXX19xHh50XUPyoAL6ARR4wHRerG/+8q0E4X2iepeis4KOLHlH9So20A9mK5Fl3pSmqJwUMfst+Tfnj3/1+WHZrjKrHzB10xequR37CsIXxcQGl6FqB4UaEFyv7V/9AAEwoIggEoAJweWg+k3XbvzZ/JlvzA0rIcPCT2754/U5lR+aIL5ZbUtRtQimO3aJxfX6AXlN58jVPKIoDhEjQcWoTV9D8s9dOf6Pb/YrIb1ZHpCVO94fSRN9Vkxpp9p2hhAtHy56dYHlOlosF3I6pIwMTa5kEpQiddlxMv3olVPTV/wXDzrjH/YaeNClif0bCco71bYyRCM/swIO1PWeRX3rfC/F74kMPhtBAoMEARKYbl93TPf9znzFb2jfs/8+UtvOJIi3Ermveuu/2lFzbwAP2/FNf/RhNfHLqHOgvZBBCwvpUot3BEYKy/u7iCDG4PIcl+U46xADQSggAZgAnO3NPewV7cw57GaxImFg8+TjCyf/+SDsDUJ27xAOgIr5kkgo6lqKDAtPYaF+N0uf1QURr7MEBpc7skaL8mSdsdUrKY+PkTYtC+80cK0L5K0rmCBGu14dCk8BVPxX/UooiolUjPkT4CC7d3QCdm9Q21Q/IhJsU80ciLmq8F2hDVLcMQYwmCAgTzNK9Srb936adR/dRWl8gnJdePuZBm/87AImaLPw5tM0Th1CTAjOeUXUeSW0b1Ho8JpQh0QGtSfnK+tu5NUH0xBgZOPENNgZ1bwY6a4jvCCmEw4GER/nLneMTK/gk3/xZSa3TJM2wGWO9mXl/dcuoS5F4hL17fdgojILbxxAgghxoK7PA92Q1T5PqP9xL+P6+uKp9VfgTQNgJKmjrkK/JbqLd8gqnXCRADEGMQEShEgQ4ayy8w/upb5pmsZ7KXliESM0L2Usvt8uYD3DtRcYnfkE8cQMqAXj5+ohWP/a6FvY6qTQNEDyOoDpbO9+4HDrRwk/WoxAYDyqBCEShJgoJk8y1tx2C2tv20lrLvMecQpGuHyqSdbIEBScotaCwsiaXd4gQeFJ00EpGUS5ZWXzlxnA5+VaH+J4yxtEAsSEXesrhmhklG33fhZnFVXBFc50Vrn09iKookW8K+CyhGh8lnB0Baj69dBdV0P7xkBzA3KZQexaphXWl27sGw+Dxithwoi8nTK753bqM6tIG7lXwAJiaF9OWTjbwASKWgeuaDbDBBVKU1tB1BvDBINKCEOe6GsFWSwUcKKq3jqqvdaNfEE7iFMsXEwAQYjNHWPr1jB7927ShgVM1/JihIXzGcl8ggjeA52miuYp8fgWJBrx8xvjQ8h4ROugzxK5VMnIlvNAX4x1d0f8jtqBy87CNQXyWMfmz+0hHiuTpw6nPSOrg/OHj6KuME6/Ak5xNiUoTRDXNgAOE0aYMMLmltZCgzzNybPUK7V0ffZ5IHHSw+HB+BeRgTXQXQdBSN5OWPEr21jzqztJFjJvLae4zBKWQ979+QlOHfgxIi3PRJxb2lDKk1sRY0hbCe2FJtWVk9x+/+f5/W/+JWt2bCZvtb0c/evAO4Ai20oGnTFEyjrx33GvGD82KJXY/Nm7u7J0XxFDspBw/IePAxnplTcoT+1Cne0O6hgmb7XIdRJTXsnGm0bZdudtbPnEzZTHK1TXwOmXPsbJQ4eJR0qDewV9CqiqyBDioIMkTUQ8qy5gL2+22bjnLmqza0kXU4wxqIJzjngs5sR/HmDx7DmisVHSxdNEYzMEURVVi7NKnvo9ojZVYsP2lcx86H6mb5giKEPSsIiBd45c4JVHHyOqxAVF6ymgmkifBxjA1g7oiwwp1SFpWU5leiUb79pN1rRAAZuqhKWISyfOcfqp54hGy54AkNG+fJxobCfqckZqMbM7pti4Y5Lp2SqVeoQCaSuDRBlbGXPyhaP84M//iitn36EyvsLvHctkRmEPbnVpsqTd20A42SxlZs+vE1VHyRqJh79i97S5483/+h80tzgRsvYiAGPly2zYUmbj9tVMz1QZnSwhRrDW0m7kgKNUjQliePrrj3DgH74BYqlMTOHsMGvVpQoMidmHub3YlsBg220mbtrO9K23ki6miBiPMtYR10qc3n+Q944cIRodZaRcYmb7jWzccRNrt8wyNlVFArDOkbZyJPA7bhAbKuMx771xjscf+honnn6WkYk6JiqjuQNswYv6FXD9IeRkcNcdGtxJBZxDgoCZuz+DqqDWUwVUkSji4pvnOPPEfjbfcgs37NrF6k0zjE0WQltH2s49eQ0FjIIIlVpE2s547ltP8ML3nqRx8RjVNatBI9TmQ0kOfTxtwANpnzM6mCt9fMiBEfLmIuvu/DS12ZkidIxHIIVS5qheWmDP53+X6Rs2goB1lqSZ+L0vNEggKJ5KlKsxqnD0wMv878M/4f2TF6mu3cbExBpa773QFwVu6N4RPu9XwOiAB7RY1Gq6mrs0oTQ5xbo7P03esihCrhDljhU51KylPLsVDYWk0UYCwYRSpJKKc44gDKlUY6yFYwcO8+IjP+WdY+eIa6uob7yVYGQKFMzcUWxyuYf7bnh/uu4aoJ/C+gyh3WL9XZ8lrtVImm0MwkTimLBCLIKGkGYZ4sAEnlmqevdE5RJxBdrNlFefOMjhH/wInd7M5B23M3X3COFojUuvzbFw4iJBZYxwdCO2+R4QLKXUXS94iFwehZx3CmpBQmxzkfrWnaz8yCdpNdqMpsrKBCp4wW031xFE6Fq7NFoCgblzZznx/LMce+4Z5s6dQfOcD3/mHtb/xsdoz2VEYxGtCwlXXnsPU8oIRzeRXHgZtVmXB3W9wDXXQCcJ7VVb1OWIwPrP7MWqMDlvWZGHGAM2pK9g5MmaBIbKWJmknfD6Mwc5dvApzh49QrvZoFStMbZ2Ay5x5KmlfcmRLbYAxaXWU+48wcSTBJXVpFeOIwRL8xOgwyVCAMlENdJBWu1ATEi+OM+qO36L6qZtrDy/yDgRNvQg1k/bnbOURisoOa888VNeefxHXDjzNiaOKNUmqE+ugrCMmAiXNUEMWvAqLXC6y38VouqNpJdep3BpkQf0oaI1et014LI20cQU6+/8bdaeT6nkAVm0hDXhnKNSq3Dh7Eme+u7XOXvs58TVGtU1G5CoDBKCBLgsQ7DYdgOX5QX18PjhMotrp1hRxFiCkfUE8QS2/X7B05YvZV4FhRQJDFl7kY2f+wJbgmnCxSY2NktKQ846KvUKx59/hv3f/nusWmprZ5Cw4gXHJ+VqMyqrVmHimHxxgXB0FJtbVMHmSlgtUV5dJaqWSS8tYtshUW0reeMsYkoFc5Vr7cSujy4YbHuR6uwObv7QPYQLbVxklrG8pVIb4bVnHmf/tx+iVJ+gNDYFEqGYoprnt3KXpcTjdTb93n24LAN12FYCJsC2c8Z3rWfyI7Okcw3e/vdDaJ4Qjm1FgkPg0r59qXPl2ssHJNPhjCfHccunvkCNMha3xPLqHKXKCKdffZkD//EQpfo44cgEqqZIXvKiWdRmmCjg4kvPc/r730OiEja3PvkpwsipkrczTj96mPRyE8iQaJxwdBaXtwsq1JHPXT0n9onFFTbvvJvZ2Y+QJM0u/+8PMRMGtBbneeq7D2HikDAeQ61FbYrazJfFXQ7OP7s8JayUePeJfby7/ycEI1W/Dpz60mNc4Z0fH6F56iJBKUCtQ50lqm33YuowCokOVSUKHMhTotEaH7r9Pr8VoEuYqnOWuBzzf08+yqV336I0UsflGWpTsBnYFM1TNM+Klvq+LMXEIWce+RaXXn4BM1rDJhnBaJXz//0Ycy8cJajEhWIOzVqY8lqC8irUJj1GunxVwnmq3Jpn6uO/yfHG27xz9iileIQojHuppSphVCJptjnxwj7ikdFC+ATNOy0tPJEUraNQ2yuoOSf/7e9YfPMY0cpx5l48yOnv/DUuPQ6U/A5M6OtXpkI0vqvHSLt7Qt8+YInmBW3bdrNcveljrNrzRRbeOsxLbz3LqrmTbNiwnfr4FFEUdinCyVeeYv7CaUpjU2iW9GqkYgYq1QMMsohfAfL5OU7969+y7ne+xKlvPYQQkF1+Cds4M8g+EdAMkciXOhABa0MTzPeVfXeHI1PmVbX51sr6m1xpesbY9jx58zKty++DhXJUITQBJoxIW/O05s9johAJR4qyYKfo1a/AYHh2FOigk2ZJoZtFRIoFnyxzECKIiQqoDAy4082J8lZO7EtC2B3Cgdzpp35mwtLW5slX3OIbL5pOrdJb3LLoPGr4nD0gjEugxvMV16tUq/SdFSxLDvsUQbuL01lb5OHR0tMf7XI1JyKi6p7kxL4EdochTPvVbNw/qcvul7gkYalSvNAta2GKzyKCFnypwza7fSJLw2f4aEl7RWMdpsh6rRNBKaDHijq+5vumNYBXFfYGWXPf2ai84QYhvEVdnqEaDNSKhiuQ/fS2TyjpUPAuf+k8W1APjRSKd79nKc9fRvhMJAzVpY+0Lz/9lc7J0sAhX72+v5aa/JBIcKNqnnl/6rUP7WS5o1K59vGk6gc4Zx4UHgki1J00qb2t0XjuAt1cmAFIdaX6r91gpPRY77TGZwdFKU+u+iPyQf4AMJz16TUOYruYaUQio2rfsia/J5079FpHVgrA7Z/S2OTcXCVa/R0HazGyy+eESO+ohKuckw634X53lTHLWqPviFMEtQ9Lmt3bnn/+bX9GfMBdy1Rd7coTH/0kKn+Icgfohh5EXM/tv+jVxd0clTMq8iS4f0muHNr/Af9q0N//gPQG74hL9bF1Dq33Tt6G775EOdw3NK0WxTEd7uu/G3Q+ubLiLOxL+oyqv4Dl9gZ+n/hlXXuD6/3d5v8BrpGhTJw1tvIAAAAASUVORK5CYII="; /* ICON-END */
 
   const CSS = `
     :host{all:initial;--bg:#fff;--fg:#111827;--bd:#e5e7eb;--chip:#e5e7eb;--hov:#f3f4f6;--sub:#6b7280}
@@ -80,15 +80,15 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const fmtSize = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(2) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB");
   const fmtEta = (s) => (s < 5 ? "a few seconds" : s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : Math.floor(s / 3600) + " h " + Math.round((s % 3600) / 60) + " min");
-  const N = globalThis.OpenDMNames, AD = globalThis.OpenDMAdapters, CL = globalThis.OpenDMClassify;
+  const N = globalThis.AeroGrabNames, AD = globalThis.AeroGrabAdapters, CL = globalThis.AeroGrabClassify;
   const safeName = N.safeName;
   const fileExt = (u) => { try { const m = new URL(u).pathname.match(/\.([a-z0-9]{2,4})$/i); return m ? m[1].toLowerCase() : "mp4"; } catch { return "mp4"; } };
   const extOf = (u) => { try { return (new URL(u).pathname.match(/\.([a-z0-9]{2,4})$/i)?.[1] || "FILE").toUpperCase(); } catch { return "FILE"; } };
   const connected = (e = "") => /not paired|replied|token|fetch|network|refused|reach|isn't running|timed out/i.test(e) || !e;
   const errorHint = (e = "") =>
-    /not paired/i.test(e) ? "OpenDM isn't connected yet. Open OpenDM once: it registers itself with your browser. (Or paste a token in this extension's options.)"
-    : /replied 401|token/i.test(e) ? "OpenDM and the extension disagree about the pairing token. Restart OpenDM, or re-paste the token in the extension's options."
-    : /fetch|network|refused/i.test(e) || !e ? "OpenDM isn't running (or the port is wrong). Start it and try again." : e;
+    /not paired/i.test(e) ? "AeroGrab isn't connected yet. Open AeroGrab once: it registers itself with your browser. (Or paste a token in this extension's options.)"
+    : /replied 401|token/i.test(e) ? "AeroGrab and the extension disagree about the pairing token. Restart AeroGrab, or re-paste the token in the extension's options."
+    : /fetch|network|refused/i.test(e) || !e ? "AeroGrab isn't running (or the port is wrong). Start it and try again." : e;
 
   // ---- what the page's own JavaScript told us (page_hook.js, Chrome / Edge / Brave): the YouTube player's description of the current video
   const hook = { yt: null };
@@ -229,7 +229,7 @@
     return best && (!p.duration || !best.q.duration || Math.abs(best.q.duration - p.duration) <= 2.5) ? (best.q.useUrl || best.x.url) : "";
   }
 
-  // The job for a sniffed stream. Video+audio files are sent together (audioUrl) so OpenDM downloads both and ffmpeg merges them.
+  // The job for a sniffed stream. Video+audio files are sent together (audioUrl) so AeroGrab downloads both and ffmpeg merges them.
   function jobFor(it, name, opts = {}) {
     const isHls = it.kind === "hls", isDash = it.kind === "dash";
     const vs = isHls ? variants.get(it.url) : undefined;
@@ -249,7 +249,7 @@
   }
 
   const siteName = () => { const a = AD?.forPage(location.href); return a && a.name ? a.name : location.hostname.replace(/^(www|m)\./, ""); };
-  // facts about the capture that OpenDM shows in its dialog next to the name (all optional; OpenDM sanitises them)
+  // facts about the capture that AeroGrab shows in its dialog next to the name (all optional; AeroGrab sanitises them)
   const metaFor = (ov, extra) => ({ site: siteName(), title: ov.nameInput.value || "", duration: Math.round(ytNow()?.lengthSeconds || (Number.isFinite(ov.v.duration) ? ov.v.duration : 0) || ov.fmt?.duration || 0), source: ov.fmt && ov.fmt.ok ? "yt-dlp" : "page", ...extra });
   // The quality ladder YouTube's player reports for THIS video: one row per height (picture + the best audio, sizes added), nothing invented.
   function ytQuick() {
@@ -281,14 +281,14 @@
     ov.nameInput.oninput = () => { ov.nameDirty = true; };
     ov.list = el("div", { className: "ml" });
     ov.foot = el("div", { className: "mf" });
-    ov.pill = el("div", { className: "pill", title: "Download this video with OpenDM  (drag to move, double-click to reset)" },
+    ov.pill = el("div", { className: "pill", title: "Download this video with AeroGrab  (drag to move, double-click to reset)" },
       el("img", { src: ICON }), el("span", { className: "lbl", textContent: "Download this video" }), el("span", { className: "car", textContent: "▾" }),
       el("button", { className: "x", textContent: "×", title: "Hide this button for this video", onclick: (e) => { e.stopPropagation(); ov.closedKey = instKey(v); closeMenu(ov); layout(ov); } }));
     ov.tip = el("div", { className: "tip" }, el("span", { className: "tt" }), el("button", { textContent: "Download" }), el("button", { className: "g", textContent: "Qualities" }), el("button", { className: "tx", textContent: "×", title: "Dismiss" }));
     ov.tip.children[1].onclick = () => quickDownload(ov); ov.tip.children[2].onclick = () => { hideTip(ov); openMenu(ov); }; ov.tip.children[3].onclick = () => hideTip(ov);
     ov.info = el("div", { className: "mi" });
     ov.menu = el("div", { className: "menu" },
-      el("div", { className: "mh" }, el("img", { src: ICON }), el("b", { textContent: "OpenDM · Download this video" }),
+      el("div", { className: "mh" }, el("img", { src: ICON }), el("b", { textContent: "AeroGrab · Download this video" }),
         el("button", { textContent: "×", title: "Close", onclick: () => closeMenu(ov) })),
       el("div", { className: "mn" }, ov.nameInput), ov.info, ov.list, ov.foot);
     ov.el = el("div", { className: "ov" }, ov.pill, ov.tip, ov.menu);
@@ -379,19 +379,20 @@
     overlays.forEach((o) => o !== ov && closeMenu(o));
     ov.el.classList.add("open");
     hideTip(ov);
-    try { window.postMessage({ source: "opendm-content", type: "ask" }, "*"); } catch {}   // page_hook.js answers with the player's data (YouTube)
+    try { window.postMessage({ source: "aerograb-content", type: "ask" }, "*"); } catch {}   // page_hook.js answers with the player's data (YouTube)
     if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);
-    ov.foot.className = "mf"; ov.foot.textContent = "Pick a quality to send it to OpenDM.";
+    ov.foot.className = "mf"; ov.foot.textContent = "Pick a quality to send it to AeroGrab.";
     renderList(ov); layout(ov);
     const src = ov.v.currentSrc || ov.v.src || "";
     if (/^https?:/i.test(src)) await send({ cmd: "found", url: src });  // a plain <video src>: make sure it is in the list
     loadItems();
-    if (ov.fmt === undefined) {  // ask OpenDM (yt-dlp) what this page offers: video AND audio formats
+    if (ov.fmt === undefined) {  // ask AeroGrab (yt-dlp) what this page offers: video AND audio formats
       ov.fmt = null;
       const r = await send({ cmd: "formats", url: pageUrlFor(ov.v), referer: location.href });
       ov.fmt = r && r.ok ? r : false;
       ov.fmtMsg = r && !r.ok ? (r.error || "") : (r === undefined ? "no answer" : "");
       ov.speed = r?.speed || 0;
+      ov.fmtHint = r && !r.ok ? (r.hint || "") : "";   // v1.8.1: WHY yt-dlp failed, in words (sign-in, outdated, no JavaScript runtime ...)
       if (ov.fmt && !ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt);
       if (ov.fmtMsg && !r?.missing && connected(ov.fmtMsg) && !/not a video page/i.test(ov.fmtMsg)) { ov.foot.className = "mf err"; ov.foot.textContent = errorHint(ov.fmtMsg); }
       renderList(ov);
@@ -404,7 +405,7 @@
   };
 
   // Choices for this video.
-  //  1) yt-dlp formats (job kind "ytdlp"): OpenDM downloads best video + best audio and merges them with ffmpeg. Always has sound.
+  //  1) yt-dlp formats (job kind "ytdlp"): AeroGrab downloads best video + best audio and merges them with ffmpeg. Always has sound.
   //  2) ONLY if yt-dlp can't read the page: the streams the browser really loaded, each sent together with its paired audio stream.
   function choicesFor(ov) {
     const name = () => ov.nameInput.value;
@@ -466,28 +467,30 @@
     const prot = protectedNote(ov);
     ov.info.textContent = [siteName(), CL && ytNow()?.lengthSeconds ? CL.fmtDuration(ytNow().lengthSeconds) : "", ytNow()?.author].filter(Boolean).join(" · ");
     if (prot) { ov.list.replaceChildren(el("div", { className: "note", textContent: prot })); return; }
+    if (ov.fmt && ov.fmt.warning) out.push(el("div", { className: "note", textContent: ov.fmt.warning }));
+    if (ov.fmt === false && ov.fmtHint) out.push(el("div", { className: "note", textContent: ov.fmtHint }));
     if (choices.length) out.push(el("div", { className: "sep", textContent: fallback ? "Detected on this page" : quick ? "Available qualities (sizes are estimates)" : "Available qualities" }));
     for (const c of choices) {
       const bits = [c.size ? (c.approx ? "≈ " : "") + fmtSize(c.size) : "", etaFor(ov, c.size), c.sub].filter(Boolean).join(" · ");
-      const q = el("div", { className: "q", title: "Send to OpenDM" }, el("span", { className: "ql", textContent: c.label }), el("span", { className: "chip", textContent: c.tag }),
+      const q = el("div", { className: "q", title: "Send to AeroGrab" }, el("span", { className: "ql", textContent: c.label }), el("span", { className: "chip", textContent: c.tag }),
                    el("span", { className: "qs", textContent: bits }), el("span", { className: "go", textContent: "⬇" }));
       q.onclick = async () => {
         q.classList.add("busy");
         const t0 = performance.now();
-        const r = await send({ cmd: "send", job: c.job() });   // background adds cookies + user-agent, then hands it to OpenDM (native messaging / local API)
+        const r = await send({ cmd: "send", job: c.job() });   // background adds cookies + user-agent, then hands it to AeroGrab (native messaging / local API)
         const ms = Math.round(performance.now() - t0);
         q.classList.remove("busy");
-        if (r?.ok) { ov.foot.className = "mf"; ov.foot.textContent = "Sent to OpenDM ✔ (" + c.label + ") · " + ms + " ms"; }
+        if (r?.ok) { ov.foot.className = "mf"; ov.foot.textContent = "Sent to AeroGrab ✔ (" + c.label + ") · " + ms + " ms"; }
         else { ov.foot.className = "mf err"; ov.foot.textContent = errorHint(r?.error); }
       };
       out.push(q);
     }
     if (ov.fmt === null) out.push(el("div", { className: "note", textContent: "Reading the video's streams…" }));
     else if (loading) out.push(el("div", { className: "note", textContent: "Checking detected streams…" }));
-    if (!choices.length && ov.fmt !== null && !loading) {
+    if (!choices.length && ov.fmt !== null && !loading && !(ov.fmt === false && ov.fmtHint)) {
       const missing = ov.fmt === false && /yt-dlp is not installed/i.test(ov.fmtMsg);
       out.push(el("div", { className: "note", textContent: missing
-        ? "For every quality on YouTube, Facebook, Instagram and similar sites, install yt-dlp:  pip install yt-dlp  (then restart OpenDM)."
+        ? "For every quality on YouTube, Facebook, Instagram and similar sites, install yt-dlp:  pip install yt-dlp  (then restart AeroGrab)."
         : "No stream detected yet. Let the video play for a moment (or switch its quality), then open this menu again." }));
     }
     ov.list.replaceChildren(...out);
@@ -497,11 +500,11 @@
   function protectedNote(ov) {
     const y = ytNow();
     if (y && (y.drm || (y.status && y.status !== "OK" && y.status !== "LIVE_STREAM_OFFLINE"))) {
-      return y.drm ? "This video is DRM-protected. OpenDM does not download protected content."
+      return y.drm ? "This video is DRM-protected. AeroGrab does not download protected content."
         : "YouTube says this video can't be played here" + (y.reason ? " (" + y.reason + ")" : "") + ". It may need a login, or it isn't available to download.";
     }
     const mine = items.filter((it) => it.drm);
-    return mine.length && !choicesFor(ov).rows.length ? "This stream is DRM-protected. OpenDM does not download protected content." : "";
+    return mine.length && !choicesFor(ov).rows.length ? "This stream is DRM-protected. AeroGrab does not download protected content." : "";
   }
 
   // ---- instant capture tip: appears under the button as soon as a downloadable resource is known for a video that is playing (once per resource)
@@ -512,7 +515,7 @@
     ov.el.classList.add("tipon"); ov.pill.classList.remove("pulse"); void ov.pill.offsetWidth; ov.pill.classList.add("pulse");
     clearTimeout(ov.tipT); ov.tipT = setTimeout(() => hideTip(ov), 7000);
   }
-  async function quickDownload(ov) {   // the tip's Download: best quality, straight to OpenDM's dialog
+  async function quickDownload(ov) {   // the tip's Download: best quality, straight to AeroGrab's dialog
     if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);   // the menu may never have been opened: fill in the real name now
     const first = choicesFor(ov).rows[0];
     hideTip(ov);
@@ -520,7 +523,7 @@
     const t0 = performance.now(), r = await send({ cmd: "send", job: first.job() });
     openMenu(ov);
     ov.foot.className = r?.ok ? "mf" : "mf err";
-    ov.foot.textContent = r?.ok ? "Sent to OpenDM ✔ (" + first.label + ") · " + Math.round(performance.now() - t0) + " ms" : errorHint(r?.error);
+    ov.foot.textContent = r?.ok ? "Sent to AeroGrab ✔ (" + first.label + ") · " + Math.round(performance.now() - t0) + " ms" : errorHint(r?.error);
   }
   function maybeTip(ov) {
     if (!cfg.toast || !ov || !ov.played || toasted.has(instKey(ov.v))) return;
@@ -533,7 +536,7 @@
   function tipSoon() { clearTimeout(tipSoon.t); tipSoon.t = setTimeout(() => { for (const ov of overlays.values()) if (ov.played) maybeTip(ov); }, 60); }
 
   // ---------- finding videos: now, and as the page changes ----------
-  // Look-ahead: when a video starts playing on a site yt-dlp supports, ask OpenDM for its qualities right away (only if OpenDM is already
+  // Look-ahead: when a video starts playing on a site yt-dlp supports, ask AeroGrab for its qualities right away (only if AeroGrab is already
   // running - this never starts it), so the menu is filled the moment the user opens it.
   const PREFETCH_HOSTS = /(^|\.)(youtube\.com|youtu\.be|facebook\.com|fb\.watch|instagram\.com|tiktok\.com|twitter\.com|x\.com|vimeo\.com|dailymotion\.com|twitch\.tv|reddit\.com|bilibili\.com|rumble\.com)$/i;
   async function prefetch(ov) {
@@ -586,7 +589,7 @@
   try { window.navigation?.addEventListener("navigatesuccess", checkNav); } catch {}
   for (const t of ["scroll", "resize", "transitionend", "animationend"]) window.addEventListener(t, () => wake(), { capture: true, passive: true });
   window.addEventListener("message", (e) => {   // answers from page_hook.js (it runs in the page's own world)
-    if (e.source !== window || !e.data || e.data.source !== "opendm-hook") return;
+    if (e.source !== window || !e.data || e.data.source !== "aerograb-hook") return;
     const { type, data } = e.data;
     if (type === "nav") checkNav();
     else if (type === "yt-player" && data && typeof data === "object") { hook.yt = sanitizeYT(data); for (const ov of overlays.values()) { if (ov.el.classList.contains("open")) renderList(ov); } tipSoon(); }

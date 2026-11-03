@@ -1,7 +1,7 @@
 """v1.7.0: file names, native-host latency behaviour, immediate start."""
 import io, json, os, struct, sys, tempfile, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import opendm
+import aerograb
 
 
 def frame(o):
@@ -20,7 +20,7 @@ def unframe(b):
 
 class TestNames(unittest.TestCase):
     def test_clean_name_windows_rules(self):
-        c = opendm.clean_name
+        c = aerograb.clean_name
         self.assertEqual(c("CON"), "_CON")
         self.assertEqual(c("nul.mp4"), "_nul.mp4")
         self.assertEqual(c('a:b*c?.mp4'), "a_b_c_.mp4")
@@ -29,39 +29,39 @@ class TestNames(unittest.TestCase):
         self.assertEqual(c(""), "download")
         self.assertEqual(c("Mr. Beast. Wow"), "Mr. Beast. Wow")
         long = c(("word " * 80) + ".mp4")
-        self.assertTrue(long.endswith(".mp4") and len(long) <= opendm.MAX_STEM + 4, len(long))
+        self.assertTrue(long.endswith(".mp4") and len(long) <= aerograb.MAX_STEM + 4, len(long))
         bn = "\u0987\u09a8\u09b6\u09be " * 60
-        self.assertLessEqual(len(c(bn + ".mp4")), opendm.MAX_STEM + 4)
+        self.assertLessEqual(len(c(bn + ".mp4")), aerograb.MAX_STEM + 4)
 
     def test_generic_titles_are_rejected(self):
         for t in ("Facebook", "Reels", "(3) Facebook", "Video", "Reel by Someone", "Name on Instagram", "12345", "  "):
-            self.assertTrue(opendm.is_generic_title(t), t)
-        self.assertFalse(opendm.is_generic_title("\u0987\u09a8\u09b6\u09be \u0986\u09b2\u09cd\u09b2\u09be\u09b9 \u09aa\u09be\u09b0\u09ab\u09c7\u0995\u09cd\u099f"))
+            self.assertTrue(aerograb.is_generic_title(t), t)
+        self.assertFalse(aerograb.is_generic_title("\u0987\u09a8\u09b6\u09be \u0986\u09b2\u09cd\u09b2\u09be\u09b9 \u09aa\u09be\u09b0\u09ab\u09c7\u0995\u09cd\u099f"))
 
     def test_pick_title_order(self):
-        self.assertEqual(opendm.pick_title({"title": "Real - YouTube", "description": "other"}), "Real")
-        self.assertEqual(opendm.pick_title({"title": "Facebook", "description": "\n The caption line\nsecond"}), "The caption line")
-        self.assertEqual(opendm.pick_title({"title": "Facebook", "fulltitle": "Full one"}), "Full one")
-        self.assertEqual(opendm.pick_title({"title": "Facebook", "id": "1"}), "")
-        self.assertEqual(opendm.pick_title({"title": "123", "id": "123"}), "")
-        self.assertLessEqual(len(opendm.pick_title({"title": "w " * 200})), 100)
+        self.assertEqual(aerograb.pick_title({"title": "Real - YouTube", "description": "other"}), "Real")
+        self.assertEqual(aerograb.pick_title({"title": "Facebook", "description": "\n The caption line\nsecond"}), "The caption line")
+        self.assertEqual(aerograb.pick_title({"title": "Facebook", "fulltitle": "Full one"}), "Full one")
+        self.assertEqual(aerograb.pick_title({"title": "Facebook", "id": "1"}), "")
+        self.assertEqual(aerograb.pick_title({"title": "123", "id": "123"}), "")
+        self.assertLessEqual(len(aerograb.pick_title({"title": "w " * 200})), 100)
 
     def test_fallback_title_is_descriptive(self):
-        self.assertEqual(opendm.fallback_title({"extractor_key": "Facebook", "id": "1584636679632422"}), "Facebook video 1584636679632422")
-        self.assertEqual(opendm.fallback_title({"webpage_url": "https://www.instagram.com/reel/abc/", "id": "abc"}), "Instagram video abc")
-        self.assertEqual(opendm.fallback_title({}), "video")
+        self.assertEqual(aerograb.fallback_title({"extractor_key": "Facebook", "id": "1584636679632422"}), "Facebook video 1584636679632422")
+        self.assertEqual(aerograb.fallback_title({"webpage_url": "https://www.instagram.com/reel/abc/", "id": "abc"}), "Instagram video abc")
+        self.assertEqual(aerograb.fallback_title({}), "video")
 
     def test_summarize_formats_carries_title_and_fallback(self):
-        r = opendm.summarize_formats({"title": "Facebook", "description": "Caption here", "id": "9", "extractor_key": "Facebook", "duration": 5,
+        r = aerograb.summarize_formats({"title": "Facebook", "description": "Caption here", "id": "9", "extractor_key": "Facebook", "duration": 5,
                                       "formats": [{"height": 720, "vcodec": "avc1", "acodec": "mp4a", "ext": "mp4", "filesize": 1000}]})
         self.assertEqual((r["title"], r["fallback"]), ("Caption here", "Facebook video 9"))
-        r = opendm.summarize_formats({"title": "Facebook", "id": "9", "extractor_key": "Facebook", "formats": []})
+        r = aerograb.summarize_formats({"title": "Facebook", "id": "9", "extractor_key": "Facebook", "formats": []})
         self.assertEqual((r["title"], r["fallback"]), ("", "Facebook video 9"))
 
 
 class TestHostLatency(unittest.TestCase):
     def host(self, codes, running=True):
-        h = opendm.NativeHost(state_dir=tempfile.mkdtemp(), launch=lambda: launched.append(1), sleep=lambda s: None, wait_seconds=1)
+        h = aerograb.NativeHost(state_dir=tempfile.mkdtemp(), launch=lambda: launched.append(1), sleep=lambda s: None, wait_seconds=1)
         launched = self.launched = []
         h.calls = []
         seq = iter(codes)
@@ -79,12 +79,12 @@ class TestHostLatency(unittest.TestCase):
         self.assertEqual(h.calls, ["/add"])  # no /ping first
         self.assertEqual(self.launched, [])
 
-    def test_add_starts_opendm_only_when_nothing_answers(self):
+    def test_add_starts_aerograb_only_when_nothing_answers(self):
         h = self.host([0, 200], running=False)
         self.assertEqual(h.handle({"cmd": "add", "job": {"url": "https://x.test/a.zip"}}), {"ok": True})
         self.assertEqual((h.calls, len(self.launched)), (["/add", "/add"], 1))
 
-    def test_prefetch_never_launches_opendm(self):
+    def test_prefetch_never_launches_aerograb(self):
         h = self.host([], running=False)
         h._json_call = lambda path, body, timeout=80: (0, None)
         r = h.handle({"cmd": "formats", "job": {"url": "https://www.youtube.com/watch?v=1", "prefetch": True}})
@@ -116,7 +116,7 @@ class TestHostLatency(unittest.TestCase):
 
 class TestKick(unittest.TestCase):
     def test_kick_starts_queued_downloads_now(self):
-        m = opendm.Manager.__new__(opendm.Manager)
+        m = aerograb.Manager.__new__(aerograb.Manager)
         started = []
 
         class D:

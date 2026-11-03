@@ -1,4 +1,4 @@
-// OpenDM toolbar popup (v1.8): switches, connection state, and a list of everything the extension detected in the current tab.
+// AeroGrab toolbar popup (v1.8): switches, connection state, and a list of everything the extension detected in the current tab.
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
 const fmtSize = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(2) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n > 0 ? Math.ceil(n / 1024) + " KB" : "");
@@ -19,12 +19,12 @@ const safe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replac
   $("img").onchange = (e) => api.storage.local.set({ detectImages: e.target.checked });
   api.runtime.sendMessage({ cmd: "status" }).then((s) => {
     $("conn").textContent = s?.mode === "native" || s?.mode === "manual"
-      ? "OpenDM: connected \u2714" + (s.mode === "native" && !s.running ? " (starts when needed)" : "")
-      : "OpenDM: not connected. Open OpenDM once to set it up.";
+      ? "AeroGrab: connected \u2714" + (s.mode === "native" && !s.running ? " (starts when needed)" : "")
+      : "AeroGrab: not connected. Open AeroGrab once to set it up.";
   }).catch(() => {});
   api.runtime.sendMessage({ cmd: "stats" }).then((s) => {
     const last = (s?.sends || []).filter((x) => x.ok).pop();
-    if (last) $("perf").textContent = "Last hand-over to OpenDM: " + last.ms + " ms (browser \u2192 OpenDM's reply).";
+    if (last) $("perf").textContent = "Last hand-over to AeroGrab: " + last.ms + " ms (browser \u2192 AeroGrab's reply).";
   }).catch(() => {});
   $("opt").onclick = () => { api.runtime.openOptionsPage(); window.close(); };
 
@@ -49,7 +49,7 @@ const safe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replac
       const job = { url: m.url, referer: m.page || tab.url || "", filename: base, kind: m.kind === "file" ? undefined : m.kind, audioUrl: m.audioUrl || undefined, meta: { site: m.site || "", title: safe(m.title || ""), ext: m.ext || "", height: m.height || 0, size: m.size || 0, source: "stream" } };
       const r = await api.runtime.sendMessage({ cmd: "send", job });
       row.classList.remove("busy");
-      $("msg").textContent = r?.ok ? "Sent to OpenDM \u2714" : (r?.error || "Could not reach OpenDM");
+      $("msg").textContent = r?.ok ? "Sent to AeroGrab \u2714" : (r?.error || "Could not reach AeroGrab");
     };
     list.append(row);
   }

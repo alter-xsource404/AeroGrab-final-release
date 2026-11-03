@@ -1,4 +1,4 @@
-// OpenDM v1.8 - page hook. Runs in the PAGE's own JavaScript world (manifest: "world": "MAIN"), at document_start, in every frame.
+// AeroGrab v1.8 - page hook. Runs in the PAGE's own JavaScript world (manifest: "world": "MAIN"), at document_start, in every frame.
 // Chrome / Edge / Brave only (Firefox MV3 has no MAIN-world content scripts before 128; there everything below is simply absent and the
 // extension falls back to network sniffing + yt-dlp).
 //
@@ -10,9 +10,9 @@
 // It talks to content.js only through window.postMessage, and everything it sends is plain, size-limited data.
 (() => {
   "use strict";
-  if (window.__opendmHook) return;
-  window.__opendmHook = true;
-  const post = (type, data) => { try { window.postMessage({ source: "opendm-hook", type, data }, "*"); } catch {} };
+  if (window.__aerograbHook) return;
+  window.__aerograbHook = true;
+  const post = (type, data) => { try { window.postMessage({ source: "aerograb-hook", type, data }, "*"); } catch {} };
   const str = (s, n = 400) => String(s == null ? "" : s).slice(0, n);
 
   // ---- single-page navigation without polling
@@ -73,7 +73,7 @@
   }
   // the content script may ask at any time (e.g. when the user opens the menu)
   addEventListener("message", (e) => {
-    if (e.source !== window || !e.data || e.data.source !== "opendm-content") return;
+    if (e.source !== window || !e.data || e.data.source !== "aerograb-content") return;
     if (e.data.type === "ask") sendYT(true);
   });
 })();

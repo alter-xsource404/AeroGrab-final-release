@@ -70,7 +70,7 @@ const msg = (m, tab = 7) => new Promise((res) => { const r = listeners.msg(m, { 
   const r = await msg({ cmd: "send", job: { url: "https://cdn.test/v/master.m3u8", kind: "hls", quality: 720, bandwidth: 2800000, referer: "https://site.test/watch", filename: "My Clip" } });
   const post = calls.find(([u]) => u === "http://127.0.0.1:6800/add");
   const body = JSON.parse(post[1].body);
-  assert(r.ok); assert.strictEqual(post[1].headers["X-OpenDM-Token"], "TKN");
+  assert(r.ok); assert.strictEqual(post[1].headers["X-AeroGrab-Token"], "TKN");
   assert.deepStrictEqual([body.kind, body.quality, body.bandwidth, body.cookie], ["hls", 720, 2800000, "sid=abc"]);
   console.log("PASS send: POST /add with token, quality=720, bandwidth=2800000, cookie, kind=hls");
   // phantom-download guard: only fresh downloads that follow a real user gesture are taken over

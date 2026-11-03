@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "OpenDM Integration",
-  "version": "1.8.0",
-  "description": "Send downloads and detected media from your browser to OpenDM, the open-source download manager.",
+  "name": "AeroGrab Companion",
+  "version": "1.8.1",
+  "description": "Send downloads and detected media from your browser to AeroGrab, the open-source download manager.",
   "permissions": [
     "downloads",
     "contextMenus",
     "cookies",
     "storage",
     "webRequest",
+    "declarativeNetRequestWithHostAccess",
     "nativeMessaging"
   ],
   "host_permissions": [
@@ -22,7 +23,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "OpenDM",
+    "default_title": "AeroGrab Companion",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

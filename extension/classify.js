@@ -1,5 +1,5 @@
-// OpenDM v1.8 - media classification core (pure functions: no DOM, no chrome.* calls; unit-tested in tests/js/classify.test.js).
-// Loaded by the service worker (importScripts / Firefox "scripts") and by tests (require). Everything hangs off globalThis.OpenDMClassify.
+// AeroGrab v1.8 - media classification core (pure functions: no DOM, no chrome.* calls; unit-tested in tests/js/classify.test.js).
+// Loaded by the service worker (importScripts / Firefox "scripts") and by tests (require). Everything hangs off globalThis.AeroGrabClassify.
 //
 //  classifyResponse()   one HTTP response (url + headers)  -> what is it?  (video / audio / stream / image / document / archive / app / other)
 //  parseContentDisposition()   RFC 6266 / 5987 file names
@@ -68,6 +68,8 @@
     const ext = dext || mext || (mime === "application/octet-stream" || mime === "binary/octet-stream" || !mime || mime.startsWith("application/") ? pext : "");
     let category = catOfExt(ext) || (mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : mime.startsWith("image/") ? "image" : "");
     if (!category && disp.type === "attachment") category = "other";
+    // v1.8.1: a <video>/<audio> element fetched it but the server called it application/octet-stream and the address has no extension: it is media
+    if (!category && type === "media" && (!mime || mime === "application/octet-stream" || mime === "binary/octet-stream")) category = "video";
     if (!category) return null;
     if (category === "image" && type && type !== "image" && type !== "media" && type !== "xmlhttprequest" && type !== "other") return null;
     return { category, kind: "file", ext: ext || (category === "video" ? "mp4" : category === "audio" ? "m4a" : ""), mime, filename: disp.filename, attachment: disp.type === "attachment", size: total };
@@ -76,7 +78,7 @@
   // minimum size worth listing, per category (a 1x1 tracking pixel or a 40 KB "preview" clip is not a download)
   function minSize(category, role, piece) {
     if (piece) return 0;
-    return { video: 2 * 1024 * 1024, audio: role === "audio" ? 16 * 1024 : 256 * 1024, image: 60 * 1024, document: 1024, archive: 1024, app: 1024, other: 1024 }[category] ?? 1024;
+    return { video: 300 * 1024, audio: role === "audio" ? 16 * 1024 : 128 * 1024, image: 60 * 1024, document: 1024, archive: 1024, app: 1024, other: 1024 }[category] ?? 1024;
   }
 
   // ================= YouTube =================
@@ -112,7 +114,7 @@
     };
   }
 
-  // The watch-page address for any YouTube URL form (the address yt-dlp / OpenDM should be given), or "".
+  // The watch-page address for any YouTube URL form (the address yt-dlp / AeroGrab should be given), or "".
   function youtubeWatchUrl(u) {
     try {
       const x = new URL(u), h = x.hostname.replace(/^(www|m|music)\./, "");
@@ -172,6 +174,6 @@
 
   const fmtDuration = (s) => { s = Math.round(+s || 0); if (!s) return ""; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
 
-  g.OpenDMClassify = { classifyResponse, parseContentDisposition, minSize, parseGoogleVideo, youtubeWatchUrl, parseHlsMaster, parseMpd, extOfPath, catOfExt, fmtDuration, ITAG, MIME_EXT };
-  if (typeof module !== "undefined" && module.exports) module.exports = g.OpenDMClassify;
+  g.AeroGrabClassify = { classifyResponse, parseContentDisposition, minSize, parseGoogleVideo, youtubeWatchUrl, parseHlsMaster, parseMpd, extOfPath, catOfExt, fmtDuration, ITAG, MIME_EXT };
+  if (typeof module !== "undefined" && module.exports) module.exports = g.AeroGrabClassify;
 })(typeof globalThis !== "undefined" ? globalThis : this);

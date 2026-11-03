@@ -48,7 +48,7 @@ const JOB = { url: "https://cdn.test/a.zip", filename: "a.zip" };
     hostDelay = () => 0;
     await msg({ cmd: "formats", url: "https://www.youtube.com/watch?v=y", referer: "", prefetch: true });
     const last = ports[0].sent.filter((m) => m.cmd === "formats").pop(); assert.strictEqual(last.job.prefetch, true);
-    console.log("PASS prefetch look-ahead is flagged so the host never starts OpenDM for it");
+    console.log("PASS prefetch look-ahead is flagged so the host never starts AeroGrab for it");
 
     // host dies -> pending call fails with a clear error, next call reconnects
     const before = ports.length;

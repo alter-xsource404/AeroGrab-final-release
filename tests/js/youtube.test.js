@@ -59,7 +59,7 @@ const gv = (itag, mime, extra = "") => `https://rr1---sn-x.googlevideo.com/video
     await wait(40); const l8 = await msg({ cmd: "list" }, 8); assert.strictEqual(l8[0].drm, true);
     const r = await msg({ cmd: "send", job: { url: "https://cdn.test/drm/manifest.mpd", kind: "dash" } }, 8);
     assert.strictEqual(r.ok, false); assert(/DRM/.test(r.error));
-    console.log("PASS Widevine-protected DASH manifest is flagged and OpenDM refuses to hand it over");
+    console.log("PASS Widevine-protected DASH manifest is flagged and AeroGrab refuses to hand it over");
     // 8) the popup (extension page, no sender.tab) can list a tab by id
     const lp = await new Promise((res) => { const rr = L.m({ cmd: "list", tabId: 7 }, {}, res); if (rr !== true) res("(none)"); }); assert.strictEqual(lp.length, 3);
     console.log("PASS popup can list the detected resources of a tab by id");

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """End-to-end smoke test of the real main window (needs a display, e.g.  xvfb-run -a python tests/gui_smoke.py).
 Drives the actual GUI: menus, toolbar, navigation tree, list columns, sorting, queues, site grabber, dialogs, tray.
-Set OPENDM_SHOT=/path/shot.png to also save a screenshot. Exits non-zero if any check fails."""
+Set AEROGRAB_SHOT=/path/shot.png to also save a screenshot. Exits non-zero if any check fails."""
 import os, sys, tempfile
-HOME = tempfile.mkdtemp()  # isolated settings + downloads; must be set before opendm is imported
+HOME = tempfile.mkdtemp()  # isolated settings + downloads; must be set before aerograb is imported
 os.environ["HOME"] = os.environ["USERPROFILE"] = HOME
 if not os.environ.get("DISPLAY") and sys.platform.startswith("linux"):
     print("SKIP: no display (run with xvfb-run)"); sys.exit(0)
@@ -14,7 +14,7 @@ except ImportError:
 import json, time, queue, threading, http.server, re, urllib.request, tkinter as tk, tkinter.messagebox as mb, tkinter.simpledialog as sd
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import opendm, test_opendm as T
+import aerograb, test_aerograb as T
 home = HOME
 for d in (".config/google-chrome", ".mozilla"):  # pretend Chrome and Firefox are installed (Linux registers by file)
     os.makedirs(os.path.join(HOME, d))
@@ -48,8 +48,8 @@ sd.askstring = lambda *a, **k: asks.pop(0) if asks else None
 fails = []
 def check(ok, msg):
     print(("PASS " if ok else "FAIL ") + msg); (fails.append(msg) if not ok else None)
-app = opendm.App(16867)
-app.mgr.settings.update(confirm_captured=False, show_complete_dialog=False)  # these checks drive the list directly; the confirm/complete windows are covered in test_opendm.py
+app = aerograb.App(16867)
+app.mgr.settings.update(confirm_captured=False, show_complete_dialog=False)  # these checks drive the list directly; the confirm/complete windows are covered in test_aerograb.py
 def driver():
     root = app.root
     def ui(fn):
@@ -77,8 +77,8 @@ def driver():
             return False
         return ui(f)
     rows = lambda: ui(lambda: [app.tree.item(i, "values") for i in app.tree.get_children()])
-    tok = opendm.get_token()
-    def api(url, **kw): urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:16867/add", data=json.dumps({"url": url, **kw}).encode(), headers={"X-OpenDM-Token": tok, "Content-Type": "application/json"}), timeout=5)
+    tok = aerograb.get_token()
+    def api(url, **kw): urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:16867/add", data=json.dumps({"url": url, **kw}).encode(), headers={"X-AeroGrab-Token": tok, "Content-Type": "application/json"}), timeout=5)
     time.sleep(2)
     # ---- 1. menu bar
     top = ui(lambda: [app.menubar.entrycget(i, "label") for i in range(app.menubar.index("end") + 1)])
@@ -189,7 +189,7 @@ def driver():
     tabs = ui(lambda: [nb.tab(i, "text") for i in range(nb.index("end"))]); check(tabs == ["General", "Save to", "Connection", "Browser", "Proxy", "Logins", "Appearance", "Sounds", "Extras"], f"Options has tabs: {tabs}")
     spin = ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TSpinbox"]); ui(lambda: (spin[1].delete(0, "end"), spin[1].insert(0, "5")))
     ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TButton" and w.cget("text") == "OK"][0].invoke()); time.sleep(0.5)
-    check(app.mgr.max_active == 5 and json.load(open(os.path.join(home, ".opendm", "settings.json")))["max_active"] == 5, "Options > Connection: 'Maximum simultaneous downloads' applied and saved")
+    check(app.mgr.max_active == 5 and json.load(open(os.path.join(home, ".aerograb", "settings.json")))["max_active"] == 5, "Options > Connection: 'Maximum simultaneous downloads' applied and saved")
     # ---- 14. view menu
     vm = menu_of("View"); panes = lambda: ui(lambda: len(app.body.panes()))
     invoke(vm, "Categories pane"); time.sleep(0.4); check(panes() == 1, "View > Categories pane hides the navigation tree")
@@ -205,11 +205,11 @@ def driver():
     tray = app.tray
     check(tray is not None and tray.available and tray.icon.running, "tray icon started with the window")
     ui(app.request_close); time.sleep(0.4)
-    check(ui(root.state) == "withdrawn" and tray.icon.notes and "still running" in tray.icon.notes[-1][1], "the window's X button hides OpenDM to the tray and says so")
-    tray.cmds.put("show"); time.sleep(0.6); check(ui(root.state) == "normal", "tray > Show OpenDM brings the window back")
-    tray.cmds.put("limit:512"); time.sleep(0.6); check(opendm.GLOBAL_LIMIT.rate == 512 * 1024, "tray > Speed limit > 512 KB/s sets the limit")
+    check(ui(root.state) == "withdrawn" and tray.icon.notes and "still running" in tray.icon.notes[-1][1], "the window's X button hides AeroGrab to the tray and says so")
+    tray.cmds.put("show"); time.sleep(0.6); check(ui(root.state) == "normal", "tray > Show AeroGrab brings the window back")
+    tray.cmds.put("limit:512"); time.sleep(0.6); check(aerograb.GLOBAL_LIMIT.rate == 512 * 1024, "tray > Speed limit > 512 KB/s sets the limit")
     tray.cmds.put("limit:0"); time.sleep(0.5)
-    check("OpenDM -" in tray.icon.title, f"tray tooltip: {tray.icon.title!r}")
+    check("AeroGrab -" in tray.icon.title, f"tray tooltip: {tray.icon.title!r}")
     ui(root.withdraw); n0 = len(tray.icon.notes); api("http://127.0.0.1:18789/report.pdf"); time.sleep(3)
     check(any("Finished: report" in m for _, m in tray.icon.notes[n0:]), "hidden window -> 'Finished: report.pdf' balloon notification")
     ui(root.deiconify); time.sleep(0.4)
@@ -217,12 +217,12 @@ def driver():
     ow = ui(lambda: [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"][-1])
     ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TCheckbutton"][0].invoke())
     ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TButton" and w.cget("text") == "OK"][0].invoke()); time.sleep(0.6)
-    check(app.tray is None and not tray.icon.running and json.load(open(os.path.join(home, ".opendm", "settings.json")))["tray"] is False, "Options: untick the tray icon -> it stops and the choice is saved")
+    check(app.tray is None and not tray.icon.running and json.load(open(os.path.join(home, ".aerograb", "settings.json")))["tray"] is False, "Options: untick the tray icon -> it stops and the choice is saved")
     # ---- 17. browser integration (native messaging registration)
-    cm = os.path.join(home, ".config", "google-chrome", "NativeMessagingHosts", "org.opendm.nativehost.json")
-    fm = os.path.join(home, ".mozilla", "native-messaging-hosts", "org.opendm.nativehost.json")
-    check(os.path.exists(cm) and os.path.exists(fm), "OpenDM registered itself with the installed browsers at startup (no click needed)")
-    m = json.load(open(cm)); check(m["allowed_origins"] == [f"chrome-extension://{opendm.DEFAULT_EXTENSION_IDS[0]}/"] and os.access(m["path"], os.X_OK), "the Chrome manifest trusts only OpenDM's extension and points at a runnable launcher")
+    cm = os.path.join(home, ".config", "google-chrome", "NativeMessagingHosts", "org.aerograb.nativehost.json")
+    fm = os.path.join(home, ".mozilla", "native-messaging-hosts", "org.aerograb.nativehost.json")
+    check(os.path.exists(cm) and os.path.exists(fm), "AeroGrab registered itself with the installed browsers at startup (no click needed)")
+    m = json.load(open(cm)); check(m["allowed_origins"] == [f"chrome-extension://{aerograb.DEFAULT_EXTENSION_IDS[0]}/"] and os.access(m["path"], os.X_OK), "the Chrome manifest trusts only AeroGrab's extension and points at a runnable launcher")
     ui(lambda: app.tbtn["browser"].invoke()); time.sleep(0.8)
     bw = ui(lambda: [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"][-1]); tvw = ui(lambda: [w for w in walk(bw) if w.winfo_class() == "Treeview"][0])
     rowsb = ui(lambda: {tvw.item(i, "values")[0]: tvw.item(i, "values")[1] for i in tvw.get_children()})
@@ -237,9 +237,9 @@ def driver():
     nbad = len(dialogs); ui(lambda: (ents[0].delete(0, "end"), ents[0].insert(0, "not-an-id"))); ui(lambda: bbtn("Save").invoke()); time.sleep(0.3)
     check(dialogs[-1][0] == "showerror" and "not-an-id" in dialogs[-1][1], "an invalid extension ID is rejected with an explanation")
     ui(lambda: (ents[0].delete(0, "end"), ents[0].insert(0, "q" * 0 + "p" * 32))); ui(lambda: bbtn("Save").invoke()); time.sleep(0.4)
-    check("p" * 32 in open(cm).read() and json.load(open(os.path.join(home, ".opendm", "settings.json")))["extension_ids"] == ["p" * 32], "a valid extra extension ID is saved and added to the browser manifests")
+    check("p" * 32 in open(cm).read() and json.load(open(os.path.join(home, ".aerograb", "settings.json")))["extension_ids"] == ["p" * 32], "a valid extra extension ID is saved and added to the browser manifests")
     cbs = ui(lambda: [w for w in walk(bw) if w.winfo_class() == "TCheckbutton"]); ui(lambda: cbs[1].invoke()); time.sleep(0.3)
-    check(json.load(open(os.path.join(home, ".opendm", "settings.json")))["autostart_from_browser"] is False, "the 'start OpenDM when the browser sends a download' switch is saved")
+    check(json.load(open(os.path.join(home, ".aerograb", "settings.json")))["autostart_from_browser"] is False, "the 'start AeroGrab when the browser sends a download' switch is saved")
     ui(lambda: bw.destroy())
     # ---- 15. Wave 1: sounds, hashes, checksum entry, dark theme, new Options tabs, ftp in the Add dialog
     import hashlib
@@ -283,7 +283,7 @@ def driver():
     check(d1.verified == "bad" and [x[3] for x in rows() if x[0] == "a.jpg"] == ["Complete - HASH MISMATCH"] and os.path.exists(d1.path), "a wrong hash is flagged in the list and the file is kept")
     # dark theme on live widgets
     st.update(theme="dark", accent="#16a34a"); ui(app.apply_theme); time.sleep(0.3)
-    pal = opendm.PAL
+    pal = aerograb.PAL
     check(pal["mode"] == "dark" and ui(lambda: app.style.lookup("Treeview", "background")) == pal["field"], "dark theme: the download list is dark")
     got = ui(lambda: (str(app.gcv.cget("bg")), str(app.menubar.cget("bg")), str(app.root.cget("bg"))))
     check(got == (pal["graph_bg"], pal["panel"], pal["bg"]), f"dark theme: window, menus and the speed graph follow {got} vs {(pal['graph_bg'], pal['panel'], pal['bg'])}")
@@ -299,7 +299,7 @@ def driver():
     press(aw, "Download Later"); time.sleep(0.3)
     check(dialogs[-1][0] == "showinfo" and "checksum" in dialogs[-1][1] and ui(aw.winfo_exists), "Add dialog: a bad checksum is refused")
     ui(lambda: he.delete(0, "end")); press(aw, "Download Later"); time.sleep(0.5)
-    check(any(isinstance(d, opendm.FtpDownload) and d.url == "ftp://h.test/a.zip" and d.status == "Paused" for d in app.mgr.items), "Add dialog accepts an ftp:// address (Download Later)")
+    check(any(isinstance(d, aerograb.FtpDownload) and d.url == "ftp://h.test/a.zip" and d.status == "Paused" for d in app.mgr.items), "Add dialog accepts an ftp:// address (Download Later)")
     # options: proxy, appearance, sounds validation
     invoke(menu_of("Downloads"), "Options..."); time.sleep(0.6)
     ow = last_top(); nb = ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TNotebook"][0])
@@ -315,28 +315,28 @@ def driver():
     qe = entries(f7); ui(lambda: (qe[-2].delete(0, "end"), qe[-2].insert(0, "99:99"))); press(ow, "OK"); time.sleep(0.3)
     check(dialogs[-1][0] == "showerror" and "22:00" in dialogs[-1][1] and ui(ow.winfo_exists), "Options: impossible quiet hours are refused")
     ui(lambda: (qe[-2].delete(0, "end"), qe[-2].insert(0, "23:00"))); press(ow, "OK"); time.sleep(0.6)
-    cfg = json.load(open(os.path.join(home, ".opendm", "settings.json")))
+    cfg = json.load(open(os.path.join(home, ".aerograb", "settings.json")))
     check(cfg["proxy_mode"] == "manual" and cfg["proxy_type"] == "socks5" and cfg["proxy_host"] == "127.0.0.1" and cfg["proxy_port"] == 1080 and cfg["theme"] == "dark" and cfg["sound_quiet_from"] == "23:00", "Options: proxy, theme and sound settings are saved")
-    check(opendm.OPENER.proxy_url == "socks5h://u:p@127.0.0.1:1080" and opendm.PAL["mode"] == "dark", "...and take effect immediately (no restart)")
-    if os.name == "posix": check(os.stat(os.path.join(home, ".opendm", "settings.json")).st_mode & 0o777 == 0o600, "the settings file (it holds the proxy password) is readable by you only")
-    st.update(proxy_mode="system", proxy_host="", proxy_user="", proxy_pass="", theme="light", accent=opendm.DEFAULT_ACCENT); ui(app.mgr.apply_network); ui(app.apply_theme); time.sleep(0.3)
-    check(opendm.PAL["mode"] == "light" and ui(lambda: app.gcv.cget("bg")) == "white" and ui(lambda: app.style.lookup("Treeview", "background")) != opendm.make_palette("dark")["field"], "switching back to light restores the light look")
+    check(aerograb.OPENER.proxy_url == "socks5h://u:p@127.0.0.1:1080" and aerograb.PAL["mode"] == "dark", "...and take effect immediately (no restart)")
+    if os.name == "posix": check(os.stat(os.path.join(home, ".aerograb", "settings.json")).st_mode & 0o777 == 0o600, "the settings file (it holds the proxy password) is readable by you only")
+    st.update(proxy_mode="system", proxy_host="", proxy_user="", proxy_pass="", theme="light", accent=aerograb.DEFAULT_ACCENT); ui(app.mgr.apply_network); ui(app.apply_theme); time.sleep(0.3)
+    check(aerograb.PAL["mode"] == "light" and ui(lambda: app.gcv.cget("bg")) == "white" and ui(lambda: app.style.lookup("Treeview", "background")) != aerograb.make_palette("dark")["field"], "switching back to light restores the light look")
     # ---- wave 2: antivirus verdict, clipboard history, floating widget, skins, customizable toolbar
     check("Clipboard history..." in labels(menu_of("Tasks")) and "Scan for viruses" in labels(menu_of("File")) and {"Floating widget", "Customize toolbar..."} <= set(labels(menu_of("View"))), "wave 2: menu entries are there")
     ui(lambda: app.set_toolbar(items=["add", "|", "clip", "widget", "scan"], style="icons", size="small")); time.sleep(0.3)
     check(ui(lambda: list(app.tbtn)) == ["add", "clip", "widget", "scan"] and ui(lambda: str(app.tbtn["add"].cget("text"))) == "", "toolbar: a custom layout (icons only, small) replaces the classic one")
     ui(app.update_state); ui(app.update_toolbar)
     ui(lambda: app.set_toolbar(items=None, style="both", size="large")); time.sleep(0.3)
-    check(ui(lambda: list(app.tbtn)) == [e[0] for e in opendm.TOOLBAR if e] and ui(lambda: str(app.tbtn["add"].cget("compound"))) == "top", "toolbar: reset brings back the classic one")
+    check(ui(lambda: list(app.tbtn)) == [e[0] for e in aerograb.TOOLBAR if e] and ui(lambda: str(app.tbtn["add"].cget("compound"))) == "top", "toolbar: reset brings back the classic one")
     st["skin"] = "nord"; ui(app.apply_theme); time.sleep(0.3)
-    check(opendm.PAL["mode"] == "dark" and ui(lambda: app.gcv.cget("bg")) == opendm.SKINS["nord"][1]["graph_bg"], "skin: Nord recolours the window (and forces dark mode)")
+    check(aerograb.PAL["mode"] == "dark" and ui(lambda: app.gcv.cget("bg")) == aerograb.SKINS["nord"][1]["graph_bg"], "skin: Nord recolours the window (and forces dark mode)")
     st["skin"] = "default"; ui(app.apply_theme); time.sleep(0.3)
-    check(opendm.PAL["mode"] == "light", "skin: back to default")
+    check(aerograb.PAL["mode"] == "light", "skin: back to default")
     ui(lambda: app.toggle_widget(True)); time.sleep(0.4)
     check(ui(lambda: app.widget.shown), "floating widget: shows")
     ui(app.widget.update); ui(lambda: app.toggle_widget(False)); time.sleep(0.2)
     check(not ui(lambda: app.widget.shown) and st["widget_on"] is False, "floating widget: hides and the choice is remembered")
-    vd = opendm.Download("http://127.0.0.1:18789/a.jpg", app.folder.get()); vd.status, vd.path, vd.name, vd.size = "Completed", os.path.join(home, "a.jpg"), "a.jpg", 8000
+    vd = aerograb.Download("http://127.0.0.1:18789/a.jpg", app.folder.get()); vd.status, vd.path, vd.name, vd.size = "Completed", os.path.join(home, "a.jpg"), "a.jpg", 8000
     vd.scan, vd.scan_info = "infected", "WARNING: ClamAV found Eicar-Test-Signature."
     ui(lambda: app.complete_dialog(vd)); time.sleep(0.5)
     cw2 = last_top()
@@ -346,10 +346,10 @@ def driver():
     for n in ("clip.mp4", "report.pdf", "song.mp3", "data.zip", "setup.exe"): api(f"http://127.0.0.1:18789/{n}")
     api("http://127.0.0.1:18789/slow.bin"); ui(lambda: app.mgr.add("http://127.0.0.1:18789/b.png", app.folder.get(), 1, later=True)); time.sleep(5)
     ui(lambda: app.show_graph.set(False)); ui(app.apply_layout)
-    if os.environ.get("OPENDM_SHOT"):
+    if os.environ.get("AEROGRAB_SHOT"):
         for m in ("PIL", "PIL.Image", "pystray"): sys.modules.pop(m, None)
         from PIL import ImageGrab
-        ui(lambda: (root.lift(), app.side.selection_set("all"))); time.sleep(1.0); ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(os.environ["OPENDM_SHOT"])
+        ui(lambda: (root.lift(), app.side.selection_set("all"))); time.sleep(1.0); ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(os.environ["AEROGRAB_SHOT"])
     print("\nFAILED:" if fails else "\nALL IDM-LAYOUT CHECKS PASSED", fails if fails else "")
     root.after(0, root.destroy)
 threading.Thread(target=driver, daemon=True).start()

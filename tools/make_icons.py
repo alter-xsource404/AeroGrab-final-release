@@ -2,7 +2,7 @@
 """Regenerates every icon from code. Needs Pillow:  pip install pillow
 Run from the repo root:  python tools/make_icons.py
 Writes assets/icon.{png,ico,icns}, extension/icons/icon{16,32,48,128}.png and
-refreshes the embedded icons inside opendm.py (window icon + toolbar/tree icons) and extension/content.js."""
+refreshes the embedded icons inside aerograb.py (window icon + toolbar/tree icons) and extension/content.js."""
 import base64, io, re
 from pathlib import Path
 import math
@@ -12,29 +12,68 @@ ROOT = Path(__file__).resolve().parent.parent
 S = 1024  # master canvas; everything is drawn big and scaled down for crisp edges
 
 
+def _bez(p0, p1, p2, n=40):
+    return [((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0], (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]) for t in [i / n for i in range(n + 1)]]
+
+
+def _fill(canvas, poly, c1, c2, vertical=True, blur=0):
+    """Paint polygon `poly` (already in canvas px) with a linear gradient c1 -> c2 on `canvas`."""
+    mask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(mask).polygon(poly, fill=255)
+    if blur:
+        mask = mask.filter(ImageFilter.GaussianBlur(blur))
+    g = Image.linear_gradient("L").resize((S, S))
+    if not vertical:
+        g = g.rotate(-90)
+    layer = Image.composite(Image.new("RGB", (S, S), c2), Image.new("RGB", (S, S), c1), g).convert("RGBA")
+    layer.putalpha(mask)
+    canvas.alpha_composite(layer)
+
+
 def master():
-    top, bot = (59, 130, 246), (29, 78, 216)  # blue gradient (#3b82f6 -> #1d4ed8)
+    """AeroGrab mark: a cyan 'A' with a swoosh orbiting it and a download arrow, on a deep navy tile."""
+    top, bot = (16, 38, 112), (8, 14, 52)
     g = Image.linear_gradient("L").resize((S, S))
     bg = Image.composite(Image.new("RGB", (S, S), bot), Image.new("RGB", (S, S), top), g).convert("RGBA")
     mask = Image.new("L", (S, S), 0)
     ImageDraw.Draw(mask).rounded_rectangle((40, 40, S - 40, S - 40), radius=210, fill=255)
     bg.putalpha(mask)
 
-    glyph = Image.new("L", (S, S), 0)  # white download arrow dropping into a tray
-    d = ImageDraw.Draw(glyph)
-    d.rectangle((442, 190, 582, 480), fill=255)                                  # shaft
-    d.polygon([(302, 450), (722, 450), (512, 690)], fill=255)                    # head
-    d.rounded_rectangle((252, 770, 772, 840), radius=35, fill=255)               # tray bottom
-    d.rounded_rectangle((252, 640, 322, 840), radius=35, fill=255)               # tray left
-    d.rounded_rectangle((702, 640, 772, 840), radius=35, fill=255)               # tray right
+    k, ox, oy = 1.06, 410, 355
+    T = lambda pts: [((x - ox) * k + 512, (y - oy) * k + 505) for x, y in pts]  # logo-space -> canvas
 
-    shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    shadow.putalpha(glyph.point(lambda v: v * 70 // 255).transform((S, S), Image.AFFINE, (1, 0, 0, 0, 1, -16)))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-    out = Image.alpha_composite(bg, shadow)
-    white = Image.new("RGBA", (S, S), (255, 255, 255, 255))
-    white.putalpha(glyph)
-    return Image.alpha_composite(out, white)
+    # soft glow behind the mark
+    glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((150, 150, 874, 874), fill=(40, 140, 255, 70))
+    bg.alpha_composite(glow.filter(ImageFilter.GaussianBlur(90)))
+
+    # the A: one solid with a triangular counter, left leg bright, right leg dark
+    A = _bez((345, 95), (400, 40), (500, 55)) + [(560, 150), (770, 628), (650, 628), (480, 322), (420, 205), (140, 650), (15, 650), (345, 95)]
+    A = _bez((345, 95), (385, 50), (465, 55), 20) + _bez((465, 55), (520, 52), (555, 110), 20) + [(770, 628), (650, 628), (480, 325), (420, 205), (140, 650), (15, 650)]
+    _fill(bg, T(A), (110, 228, 255), (35, 125, 245))
+    right = [(470, 40), (800, 40), (800, 700), (252, 700), (420, 205)]   # everything right of the apex split line
+    rmask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(rmask).polygon(T(right), fill=255)
+    amask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(amask).polygon(T(A), fill=255)
+    from PIL import ImageChops
+    dark = Image.composite(Image.new("RGB", (S, S), (14, 36, 150)), Image.new("RGB", (S, S), (45, 120, 240)), Image.linear_gradient("L").resize((S, S))).convert("RGBA")
+    dark.putalpha(ImageChops.multiply(rmask, amask))
+    bg.alpha_composite(dark)
+
+    # swoosh (soft shadow, then body)
+    swoosh = (_bez((48, 595), (150, 420), (420, 335), 50) + _bez((420, 335), (620, 270), (722, 222), 40)
+              + _bez((722, 222), (752, 235), (738, 268), 12) + _bez((738, 268), (600, 385), (400, 455), 40)
+              + _bez((400, 455), (250, 520), (222, 640), 40) + _bez((222, 640), (120, 665), (48, 595), 30))
+    sh = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).polygon(T([(x, y + 26) for x, y in swoosh]), fill=(4, 12, 70, 170))
+    bg.alpha_composite(sh.filter(ImageFilter.GaussianBlur(14)))
+    _fill(bg, T(swoosh), (130, 245, 255), (90, 115, 245), vertical=False)
+
+    # download arrow
+    arrow = [(540, 410), (620, 410), (620, 520), (680, 520), (580, 645), (475, 520), (540, 520)]
+    _fill(bg, T(arrow), (110, 225, 255), (40, 150, 240))
+    return bg
 
 
 # ---------------- toolbar + tree icons (drawn on 256 px, shipped at 32 px / 16 px) ----------------
@@ -169,12 +208,12 @@ def main():
     sized(m, 128).save(buf, "PNG", optimize=True)
     b64 = base64.b64encode(buf.getvalue()).decode()
     lines = "\n".join(f'    "{b64[i:i + 100]}"' for i in range(0, len(b64), 100))
-    src = (ROOT / "opendm.py").read_text(encoding="utf-8")
+    src = (ROOT / "aerograb.py").read_text(encoding="utf-8")
     new, n = re.subn(r"(# --- window icon.*?\n)ICON_B64 = \(.*?\n\)\n(# --- end window icon ---)",
                      lambda mo: f"{mo.group(1)}ICON_B64 = (\n{lines}\n)\n{mo.group(2)}", src, flags=re.S)
     if n != 1:
-        raise SystemExit("icon markers not found in opendm.py")
-    (ROOT / "opendm.py").write_text(new, encoding="utf-8")
+        raise SystemExit("icon markers not found in aerograb.py")
+    (ROOT / "aerograb.py").write_text(new, encoding="utf-8")
 
     # floating panel icon (48 px, inlined so web pages can never request it)
     buf48 = io.BytesIO()
@@ -187,11 +226,11 @@ def main():
         sized(im, 16 if name.startswith("t_") else 32).save(b, "PNG", optimize=True)
         ui[name] = base64.b64encode(b.getvalue()).decode()
     body = "\n".join(f'    "{k}": (\n' + "\n".join(f'        "{v[i:i + 96]}"' for i in range(0, len(v), 96)) + "\n    )," for k, v in ui.items())
-    src2 = (ROOT / "opendm.py").read_text(encoding="utf-8")
+    src2 = (ROOT / "aerograb.py").read_text(encoding="utf-8")
     new2, n3 = re.subn(r"(# --- ui icons.*?\n)UI_ICONS = \{.*?\}\n(# --- end ui icons ---)", lambda mo: f"{mo.group(1)}UI_ICONS = {{\n{body}\n}}\n{mo.group(2)}", src2, flags=re.S)
     if n3 != 1:
-        raise SystemExit("ui icon markers not found in opendm.py")
-    (ROOT / "opendm.py").write_text(new2, encoding="utf-8")
+        raise SystemExit("ui icon markers not found in aerograb.py")
+    (ROOT / "aerograb.py").write_text(new2, encoding="utf-8")
     sheet = Image.new("RGBA", (12 * 80 + 20, 220), (240, 240, 240, 255))
     for i, (name, im) in enumerate(draw_ui_icons().items()):
         n = 16 if name.startswith("t_") else 32

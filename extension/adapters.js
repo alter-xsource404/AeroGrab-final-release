@@ -1,16 +1,16 @@
-// OpenDM v1.8 - website adapters. One entry per site; adding a site = adding one object to ADAPTERS (nothing else changes).
+// AeroGrab v1.8 - website adapters. One entry per site; adding a site = adding one object to ADAPTERS (nothing else changes).
 //
 //   id / name       short id, display name
 //   page            RegExp tested against the PAGE hostname
 //   cdn             RegExp tested against the hostname of a media REQUEST (lets the service worker label a stream before any header arrives)
-//   videoPage(url)  the address OpenDM (yt-dlp) should read for a page/post URL: { id, url } or null
+//   videoPage(url)  the address AeroGrab (yt-dlp) should read for a page/post URL: { id, url } or null
 //   request(u, ct)  a request's URL -> extra facts about that stream { role, height, group, ... } (or null = nothing special)
 //   dom(doc, video) the page's own title / caption / extra facts for the <video>, read from the DOM (content script only)
 //
 // request() runs in the service worker for EVERY media response, so it must be cheap and must not throw.
 (function (g) {
   "use strict";
-  const C = () => g.OpenDMClassify;
+  const C = () => g.AeroGrabClassify;
   const txt = (e) => (e && (e.innerText || e.textContent) || "").replace(/\s+/g, " ").trim();
   const meta = (doc, sel) => doc.querySelector(sel)?.content || "";
   const b64json = (s) => { try { return JSON.parse(atob(s.replace(/-/g, "+").replace(/_/g, "/"))); } catch { return null; } };
@@ -110,6 +110,6 @@
   }
   const register = (a) => { ADAPTERS.unshift(a); };   // a site can be added at run time (tests, future adapters)
 
-  g.OpenDMAdapters = { ADAPTERS, GENERIC, forPage, forRequest, describeRequest, register };
-  if (typeof module !== "undefined" && module.exports) module.exports = g.OpenDMAdapters;
+  g.AeroGrabAdapters = { ADAPTERS, GENERIC, forPage, forRequest, describeRequest, register };
+  if (typeof module !== "undefined" && module.exports) module.exports = g.AeroGrabAdapters;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -10,14 +10,14 @@ async function check() {
   const s = (await api.runtime.sendMessage({ cmd: "status" })) || {};
   if (s.mode === "native") {
     box.className = "ok";
-    box.textContent = s.running ? `Connected to OpenDM ${s.version || ""} through the browser integration \u2714`
-      : "Browser integration is set up \u2714. OpenDM isn't running right now" + (s.autostart ? "; it starts automatically when you send a download." : ". Start it yourself (automatic start is off in OpenDM's Browser setup).");
+    box.textContent = s.running ? `Connected to AeroGrab ${s.version || ""} through the browser integration \u2714`
+      : "Browser integration is set up \u2714. AeroGrab isn't running right now" + (s.autostart ? "; it starts automatically when you send a download." : ". Start it yourself (automatic start is off in AeroGrab's Browser setup).");
   } else if (s.mode === "manual") {
     box.className = "ok";
-    box.textContent = "Connected through the manual pairing token \u2714. Tip: open OpenDM once and it will register itself with this browser, so you won't need the token.";
+    box.textContent = "Connected through the manual pairing token \u2714. Tip: open AeroGrab once and it will register itself with this browser, so you won't need the token.";
   } else {
     box.className = "bad";
-    box.textContent = "Not connected. Open OpenDM once: it registers itself with your browser automatically (or click Browser in its toolbar), then press Check again. Details: " + (s.error || "unknown");
+    box.textContent = "Not connected. Open AeroGrab once: it registers itself with your browser automatically (or click Browser in its toolbar), then press Check again. Details: " + (s.error || "unknown");
   }
 }
 $("recheck").onclick = check;
@@ -30,8 +30,8 @@ $("save").onclick = async () => {
   const c = { token: $("token").value.trim(), port: +$("port").value || 6800 };
   await api.storage.local.set(c);
   try {
-    const r = await fetch(`http://127.0.0.1:${c.port}/ping`, { headers: { "X-OpenDM-Token": c.token } });
-    $("msg").textContent = r.ok ? "Connected to OpenDM \u2714" : r.status === 401 ? "Wrong token" : "Error " + r.status;
-  } catch { $("msg").textContent = "OpenDM isn't running (or the port is wrong)"; }
+    const r = await fetch(`http://127.0.0.1:${c.port}/ping`, { headers: { "X-AeroGrab-Token": c.token } });
+    $("msg").textContent = r.ok ? "Connected to AeroGrab \u2714" : r.status === 401 ? "Wrong token" : "Error " + r.status;
+  } catch { $("msg").textContent = "AeroGrab isn't running (or the port is wrong)"; }
   check();
 };

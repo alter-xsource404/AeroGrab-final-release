@@ -13,13 +13,13 @@ where python >nul 2>nul || set "PY=py"
 
 if not exist "ffmpeg\ffmpeg.exe" echo WARNING: ffmpeg\ffmpeg.exe not found - video+audio merging will not work in the built files.
 
-rem --- 1) single-file exe: dist\OpenDM-windows.exe (ffmpeg embedded when ffmpeg\ffmpeg.exe exists) ---
+rem --- 1) single-file exe: dist\aerograb-windows.exe (ffmpeg embedded when ffmpeg\ffmpeg.exe exists) ---
 %PY% build.py --portable --bundle-ffmpeg || goto :fail
-if not exist "dist\OpenDM-windows.exe" (echo dist\OpenDM-windows.exe was not created. & goto :fail)
+if not exist "dist\aerograb-windows.exe" (echo dist\aerograb-windows.exe was not created. & goto :fail)
 
-rem --- 2) program folder: dist\OpenDM\OpenDM.exe (+ ffmpeg.exe) - this is what the installer packs ---
+rem --- 2) program folder: dist\aerograb\aerograb.exe (+ ffmpeg.exe) - this is what the installer packs ---
 %PY% build.py || goto :fail
-if not exist "dist\OpenDM\OpenDM.exe" (echo dist\OpenDM\OpenDM.exe was not created. & goto :fail)
+if not exist "dist\aerograb\aerograb.exe" (echo dist\aerograb\aerograb.exe was not created. & goto :fail)
 
 rem --- 3) installer (optional: skipped when Inno Setup is not installed) ---
 set "ISCC="
@@ -36,7 +36,7 @@ if not defined ISCC (
   goto :done
 )
 echo Using: %ISCC%
-"%ISCC%" "installer\OpenDM.iss" || goto :fail
+"%ISCC%" "installer\AeroGrab.iss" || goto :fail
 
 :done
 echo.

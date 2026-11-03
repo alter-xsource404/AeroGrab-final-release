@@ -1,4 +1,4 @@
-// OpenDM v1.7 - media file-name resolution (pure functions, no DOM; loaded before content.js and unit-tested in tests/js/names.test.js).
+// AeroGrab v1.7 - media file-name resolution (pure functions, no DOM; loaded before content.js and unit-tested in tests/js/names.test.js).
 // Order: the site's own media title -> post caption / description -> page metadata -> a descriptive "<Site> video <id>" fallback.
 (function (g) {
   "use strict";
@@ -43,11 +43,11 @@
       return safeName([brand.charAt(0).toUpperCase() + brand.slice(1), "video", id.slice(0, 40)].filter(Boolean).join(" "));
     } catch { return "video"; }
   }
-  // ytTitle: from OpenDM/yt-dlp ("" when generic); dom: [aria-label, post caption, structured data ...]; meta: [og:title, og:description, h1, title]
+  // ytTitle: from AeroGrab/yt-dlp ("" when generic); dom: [aria-label, post caption, structured data ...]; meta: [og:title, og:description, h1, title]
   function pickName({ ytTitle, ytFallback, dom, meta, pageUrl }) {
     return firstGood([ytTitle]) || firstGood(dom) || firstGood(meta) || safeName(ytFallback) || fallbackName(pageUrl);
   }
   const api = { shorten, safeName, cleanTitle, isGeneric, firstGood, fallbackName, pickName };
-  g.OpenDMNames = api;
+  g.AeroGrabNames = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

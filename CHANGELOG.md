@@ -1,7 +1,42 @@
 # Changelog
 
+## Rename: OpenDM -> AeroGrab
+- App, extension ("AeroGrab Companion"), CLI/binaries (`aerograb`), native host (`org.aerograb.nativehost`), env vars (`AEROGRAB_HOME`, `AEROGRAB_FFMPEG`), repo URL (https://github.com/alter-xsource404/AeroGrab-final-release) and all docs renamed.
+- Window title / header: "AeroGrab - The Download Manager You Need". New logo + all icon sizes regenerated.
+- `~/.opendm` is moved to `~/.aerograb` on first start. Re-run Browser integration once so the browser finds the renamed native host.
+- Firefox add-on id is now `aerograb@alter-xsource404.github.io`.
+
+## 1.8.1
+Focus: YouTube and "any site" downloads that actually work, and failures that explain themselves.
+
+**What was and was not tested.** Python (324 tests) and the extension logic (JS suites, stubbed browser) pass. This build was made in a sandbox with no browser and no internet, so **nothing was run against real YouTube / Chrome / Deno / GitHub**. Please run `docs/REAL_BROWSER_CHECKLIST.md`.
+
+### Why YouTube failed (root causes)
+1. Since yt-dlp 2025.11 YouTube needs a **JavaScript runtime** (Deno, Node 22+, Bun, QuickJS) and the **yt-dlp-ejs solver**. AeroGrab configured neither, so yt-dlp returned nothing or only 360p.
+2. yt-dlp was never updated (`>=2024.8.6`); YouTube changes break old copies within weeks.
+3. YouTube's signed links were handed to AeroGrab's own 8-connection engine, which YouTube throttles/refuses. yt-dlp's downloader (10 MB pieces, retries) is what works.
+4. The real error was swallowed: the menu said only "No stream detected yet".
+
+### Fixes (app)
+- Finds Deno/Node/Bun/QuickJS automatically; if none exists, downloads Deno (official release, checksum-checked when published) into `~/.aerograb/runtime`. Passes `js_runtimes` + `remote_components` to yt-dlp.
+- Self-updating yt-dlp: official zipapp, SHA-256 verified, into `~/.aerograb/ytdlp` (checked every 12 h, and once immediately when a failure looks like "out of date"). Settings: `auto_ytdlp_update`, `auto_js_runtime`, `ytdlp_channel` ("stable"/"nightly"); env `AEROGRAB_NO_YTDLP_UPDATE`, `AEROGRAB_NO_RUNTIME_DOWNLOAD`, `AEROGRAB_JS_RUNTIME`.
+- YouTube downloads go straight to yt-dlp's downloader (no second lookup). Other sites: AeroGrab's fast engine first, fresh links on expiry, then yt-dlp's downloader if it still fails. Streams needing cookies/odd headers use yt-dlp's downloader up front.
+- yt-dlp errors are explained in words (sign-in, age, bot check, region, DRM, no runtime, outdated, network) and shown in the browser menu.
+- Progress bar covers video + audio; speed limit applies; `%` in titles no longer breaks names; unnamed links get "Title [id]".
+- `requirements.txt`: `yt-dlp[default]>=2025.11.12`; build bundles `yt_dlp_ejs`.
+
+### Fixes (extension)
+- Media with unknown size (chunked) was dropped; now kept. Video minimum 2 MB -> 300 KB.
+- `application/octet-stream` media loaded by a media element is recognised; direct video tabs and requests from workers (no tab id) are detected.
+- HLS/DASH manifests and file probes are fetched with the page's Referer/Origin (temporary per-address `declarativeNetRequest` rule; new permission `declarativeNetRequestWithHostAccess`, Chrome/Edge/Brave).
+
+### Remaining limitations
+- IDM is closed source; nothing here is reverse-engineered from it. DRM streams are not downloaded.
+- YouTube can still require sign-in/PO tokens for some videos; that is up to yt-dlp and your browser login.
+- In a PyInstaller build, whether the downloaded yt-dlp overrides the bundled one is verified at run time but unproven here.
+
 ## 1.8.0
-Focus: a modular media-detection engine in the extension, YouTube detection that no longer depends on a lucky URL, an instant capture tip, and a leaner browser-to-OpenDM path. (Versions: app 1.8.0, extension 1.8.0, installer 1.8.0, Windows file version 1.8.0.0.)
+Focus: a modular media-detection engine in the extension, YouTube detection that no longer depends on a lucky URL, an instant capture tip, and a leaner browser-to-AeroGrab path. (Versions: app 1.8.0, extension 1.8.0, installer 1.8.0, Windows file version 1.8.0.0.)
 
 **Read this first - what was and was not tested.** This build was developed in a sandbox with no browser, no network, no tkinter and no yt-dlp. Everything below marked *tested* was verified by automated tests against the real extension/host code with stubbed browser APIs (Node), a fake DOM, and a real loopback HTTP server + real native-messaging framing over pipes (Python). **None of it has been run in real Chrome / Edge / Brave, on the real YouTube / Facebook / Instagram / ... sites, or with the Tk dialog.** See "Remaining limitations" and the checklist in `docs/REAL_BROWSER_CHECKLIST.md`.
 
@@ -14,30 +49,30 @@ Focus: a modular media-detection engine in the extension, YouTube detection that
 
 ### Detection engine (modular)
 - `extension/classify.js` (pure functions): response classification by **content-type, Content-Disposition (RFC 6266/5987) and URL** - video, audio, HLS/DASH, image, document, archive, program (EXE/MSI/APK ...), other; segments (.ts/.m4s/.vtt) ignored; per-category minimum sizes; YouTube `videoplayback` parser (itag table -> resolution/fps/codec/container, audio vs video vs muxed, `clen`, `dur`, expiry, range-free stream address, SABR/live flags); HLS master + DASH MPD parsers (qualities, audio renditions, live, **DRM flag**).
-- `extension/adapters.js`: one small object per site (YouTube, Facebook, Instagram, TikTok, X/Twitter, Vimeo, Reddit, Dailymotion + generic). Each can describe a stream from its address (role/height/group), map a page to its canonical video address, and read the site's own title/caption from the DOM. Adding a site = adding one object (`OpenDMAdapters.register`).
+- `extension/adapters.js`: one small object per site (YouTube, Facebook, Instagram, TikTok, X/Twitter, Vimeo, Reddit, Dailymotion + generic). Each can describe a stream from its address (role/height/group), map a page to its canonical video address, and read the site's own title/caption from the DOM. Adding a site = adding one object (`AeroGrabAdapters.register`).
 - `extension/page_hook.js` (Chrome/Edge/Brave, runs in the page's own world): reports single-page navigation (no polling), YouTube's own description of the current video (title, length, quality ladder, live/DRM/playability status) and MediaSource use. It does **not** wrap fetch/XHR and never touches playback.
 - Service worker: YouTube streams are recognised at `webRequest.onBeforeRequest` (before any response header), one entry per stream (not per piece), refreshed addresses update the entry, mp4 video is paired with m4a audio / webm with opus; HLS/DASH manifests are fetched once in the background on detection (qualities, audio, DRM); SPA navigation clears stale entries but keeps a stream that loaded at that instant; tab state is in memory and persisted write-behind (no storage round trip before the page is told); per-class list caps so thumbnails can't evict videos.
 - Popup lists **everything detected in the tab** (video/audio/stream/image/document/archive/program) with one-click send, shows the last measured hand-over time, and has switches for the capture tip and image listing.
 
 ### Instant capture
-- Capture tip: when a video that is playing has a known downloadable resource, a small tip appears under the OpenDM button ("Video detected - up to 1080p - <title>" with Download / Qualities). Once per resource, 7 s, never steals focus; switch in the popup. *Download* sends the best quality straight to OpenDM's dialog.
+- Capture tip: when a video that is playing has a known downloadable resource, a small tip appears under the AeroGrab button ("Video detected - up to 1080p - <title>" with Download / Qualities). Once per resource, 7 s, never steals focus; switch in the popup. *Download* sends the best quality straight to AeroGrab's dialog.
 - The button also appears while the pointer is over a video (before Play).
 - YouTube quality list appears **immediately** from the player's own data, with sizes marked as estimates, and is refined when yt-dlp answers; downloads from it still go through yt-dlp at download time (always fresh addresses, merging by ffmpeg).
 - Removed timers: the 300 ms address poll and the 600 ms wake interval are gone; the position loop runs only for ~450 ms after something moved; the DOM observer only reacts to added `<video>` subtrees.
 - Push messages from the service worker (coalesced within 40 ms), look-ahead starts at Play (was +400 ms).
 
-### Browser -> OpenDM
+### Browser -> AeroGrab
 - Local server: HTTP/1.1 keep-alive, TCP_NODELAY and one buffered write per response (headers and body used to leave as two small segments - a classic delayed-ACK stall on Windows). Unknown paths now answer 404 (they used to be silently dropped).
 - Native host: token and port are cached (re-read only when the file changes), one keep-alive connection per thread with one retry if it went stale.
 - `/formats` is single-flight: concurrent identical lookups share one yt-dlp run (including shared failures).
 - GUI hand-over poll 100 ms -> 25 ms.
 - The dialog shows what the browser already knows (quality - format - length - size estimate - site) instead of "Checking...".
-- Extension measures every hand-over (`stats`), shown in the popup and in the menu footer ("Sent to OpenDM (1080p) - 38 ms").
+- Extension measures every hand-over (`stats`), shown in the popup and in the menu footer ("Sent to AeroGrab (1080p) - 38 ms").
 
 ### Names, metadata, DRM
 - Title priority: yt-dlp title -> YouTube player title -> site adapter (Instagram caption from `og:description`, tweet text, Reddit post title, TikTok description ...) -> v1.7 chain -> "<Site> video <id>". `Content-Disposition` names are kept for files.
 - New `meta` object on every job (site, title, container, height, duration, size, source) - validated and size-limited by `sanitize_meta()`.
-- **DRM:** Widevine/PlayReady/FairPlay-protected HLS/DASH manifests and YouTube videos reporting DRM are flagged, shown as protected, and refused by the extension and (second line) by OpenDM's server. No bypass of any kind.
+- **DRM:** Widevine/PlayReady/FairPlay-protected HLS/DASH manifests and YouTube videos reporting DRM are flagged, shown as protected, and refused by the extension and (second line) by AeroGrab's server. No bypass of any kind.
 
 ### Compatibility
 - Settings, history, installer `AppId`, native-host name and extension ID unchanged. Existing 290 Python tests and 5 JS suites pass unchanged. Reload the extension after upgrading.
@@ -46,7 +81,7 @@ Focus: a modular media-detection engine in the extension, YouTube detection that
 ### Measured (loopback / stubbed, see `tools/bench_capture.py` and `tests/js/bench_detect.js`; same harness on v1.7.0 and v1.8.0, this sandbox)
 | | v1.7.0 | v1.8.0 |
 |---|---|---|
-| host message -> job reaches OpenDM, 300 sequential adds (median / p95) | 0.47 / 0.64 ms | 0.20 / 0.36 ms |
+| host message -> job reaches AeroGrab, 300 sequential adds (median / p95) | 0.47 / 0.64 ms | 0.20 / 0.36 ms |
 | host message -> reply back to browser (median / p95) | 0.66 / 0.87 ms | 0.33 / 0.60 ms |
 | burst of 20 adds, all acknowledged | 13.7 ms | 5.5 ms |
 | two simultaneous /formats for one video: yt-dlp runs started | 2 | 1 |
@@ -55,7 +90,7 @@ Focus: a modular media-detection engine in the extension, YouTube detection that
 | awaited storage/tabs round trips before the page is told (YouTube) | 4 | 1 (state restore after a service-worker wake; not awaited on the early path) |
 | awaited round trips before the page is told (plain MP4) | 3 | 1 |
 
-These are loopback numbers: they show the overhead the code itself adds, which was already small. They are **not** end-to-end "click Play -> dialog" times. The big end-to-end costs are yt-dlp extraction (seconds, unchanged, now run once and hidden behind the instant list on YouTube), process start-up when OpenDM is not running (unchanged: the installer's folder build avoids unpacking), and Tk window creation (not measurable here). The Windows delayed-ACK fix cannot show up on Linux loopback; its effect on Windows is unmeasured.
+These are loopback numbers: they show the overhead the code itself adds, which was already small. They are **not** end-to-end "click Play -> dialog" times. The big end-to-end costs are yt-dlp extraction (seconds, unchanged, now run once and hidden behind the instant list on YouTube), process start-up when AeroGrab is not running (unchanged: the installer's folder build avoids unpacking), and Tk window creation (not measurable here). The Windows delayed-ACK fix cannot show up on Linux loopback; its effect on Windows is unmeasured.
 
 ### Tests added
 `tests/js/classify.test.js`, `youtube.test.js`, `contentload.test.js` (fake DOM), `bench_detect.js`; `tests/test_v180.py`; `tools/bench_capture.py`.
@@ -75,9 +110,9 @@ Focus: faster browser capture, faster download dialog, real file names, a leaner
 
 ### Browser capture
 - **One persistent native-messaging connection** (`connectNative`) replaces a new host process for every message. With the packaged one-file exe, every `ping` / `config` / `add` / `formats` used to unpack and start the whole program (seconds). The connection is opened when the browser starts, so the first capture finds a running host. Replies are matched by id and a slow yt-dlp `formats` lookup runs on its own thread, so a download hand-over is never queued behind it. If the host dies, the next call reconnects once.
-- The host now tries `/add` first and starts OpenDM only if nothing answers (was: ping, then add).
+- The host now tries `/add` first and starts AeroGrab only if nothing answers (was: ping, then add).
 - The content script runs at `document_start` (was `document_idle`), so players created early are seen immediately.
-- When a video starts playing on a yt-dlp-supported site, the extension asks OpenDM for the qualities in the background (only if OpenDM is already running; it never launches OpenDM), so the "Download this video" menu is filled when opened.
+- When a video starts playing on a yt-dlp-supported site, the extension asks AeroGrab for the qualities in the background (only if AeroGrab is already running; it never launches AeroGrab), so the "Download this video" menu is filled when opened.
 - Duplicate sniffed streams (e.g. Facebook byte-range pieces) are dropped in memory before any storage or tab lookup.
 
 ### Download dialog
@@ -85,14 +120,14 @@ Focus: faster browser capture, faster download dialog, real file names, a leaner
 - *Start Download* starts the transfer immediately (`Manager.kick()`), not at the next tick.
 
 ### File names
-- New `extension/names.js` + `pick_title()` in OpenDM: site title -> post caption -> structured data / Open Graph / page metadata -> `Content-Disposition` / URL name -> `<Site> video <id>`. Titles that only name the site ("Facebook", "Reels", "(3) Facebook", "Reel by ...") are rejected, which fixes names like `facebook 1920p.mp4`. The tab title is used only when it is not generic.
+- New `extension/names.js` + `pick_title()` in AeroGrab: site title -> post caption -> structured data / Open Graph / page metadata -> `Content-Disposition` / URL name -> `<Site> video <id>`. Titles that only name the site ("Facebook", "Reels", "(3) Facebook", "Reel by ...") are rejected, which fixes names like `facebook 1920p.mp4`. The tab title is used only when it is not generic.
 - The page caption is read from the post around the video (Facebook/Instagram etc.) on a best-effort basis; when a site exposes nothing usable the descriptive fallback is used.
 - `clean_name()` now also strips zero-width/bidi characters, avoids Windows reserved names (CON, NUL, COM1 ...), limits the stem to 120 characters at a word boundary and keeps the extension. Existing duplicate handling still adds `(1)`, `(2)`.
 
 ### Size / packaging
-- The old build bundled **two ffmpegs** (imageio-ffmpeg's ~80 MB inside the exe, plus the installer's separate 107 MB `ffmpeg.exe`). ffmpeg now ships once, beside `OpenDM.exe`.
+- The old build bundled **two ffmpegs** (imageio-ffmpeg's ~80 MB inside the exe, plus the installer's separate 107 MB `ffmpeg.exe`). ffmpeg now ships once, beside `aerograb.exe`.
 - The installer packs a program **folder** (`--onedir`) instead of a one-file exe: no unpacking on every start, and the native host starts quickly. `python build.py --portable` still produces the single exe.
-- Unused stdlib modules excluded (pydoc, idle, turtle, ...). Generated `build/`, stale `dist/*.exe` and `opendm.py.patch` are no longer in the source ZIP.
+- Unused stdlib modules excluded (pydoc, idle, turtle, ...). Generated `build/`, stale `dist/*.exe` and `aerograb.py.patch` are no longer in the source ZIP.
 
 ### Compatibility
 - Settings, history and the installer `AppId` are unchanged, so upgrading in place keeps them. The native-host name and extension ID are unchanged. The extension must be reloaded after upgrading (it is updated together with the app).

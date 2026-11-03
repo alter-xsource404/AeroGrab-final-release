@@ -1,14 +1,14 @@
-<!doctype html><meta charset="utf-8"><title>OpenDM options</title>
+<!doctype html><meta charset="utf-8"><title>AeroGrab Companion options</title>
 <style>body{font:14px system-ui;max-width:560px;margin:30px auto}label{display:block;margin:12px 0}input[type=text],input[type=number]{width:100%;padding:6px}
  #conn{padding:10px 12px;border-radius:8px;background:#8881;border-left:4px solid #888} #conn.ok{border-color:#16a34a} #conn.bad{border-color:#dc2626} details{margin:18px 0}</style>
-<h2>OpenDM integration</h2>
+<h2>AeroGrab Companion</h2>
 <div id="conn">Checking...</div>
 <p><button id="recheck">Check again</button></p>
-<p style="color:#666">Which downloads OpenDM takes over (file types, excluded sites, browsers, keys) is set in OpenDM: <b>Options &rarr; Configuration</b>.</p>
+<p style="color:#666">Which downloads AeroGrab takes over (file types, excluded sites, browsers, keys) is set in AeroGrab: <b>Options &rarr; Configuration</b>.</p>
 <label><input id="intercept" type="checkbox"> Capture browser downloads</label>
 <label>Ignore files smaller than (KB, 0 = capture all) <input id="min" type="number" min="0"></label>
 <details><summary>Advanced: manual pairing (only needed if the automatic connection doesn't work)</summary>
-<p>In OpenDM open <b>Browser</b>, copy the token and paste it here.</p>
+<p>In AeroGrab open <b>Browser</b>, copy the token and paste it here.</p>
 <label>Pairing token <input id="token" type="text" autocomplete="off"></label>
 <label>Port <input id="port" type="number" min="1" max="65535"></label>
 <p><button id="save">Save &amp; test</button> <span id="msg"></span></p></details>

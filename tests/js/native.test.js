@@ -23,22 +23,22 @@ const JOB = { url: "https://cdn.test/a.zip", referer: "https://site.test/", file
     // 1. the normal case: the host takes it, no port or token involved
     reset(); hostBehaviour = () => ({ ok: true });
     assert.deepStrictEqual(await msg({ cmd: "send", job: JOB }), { ok: true });
-    assert.strictEqual(native.length, 1); assert.strictEqual(native[0][0], "org.opendm.nativehost");
+    assert.strictEqual(native.length, 1); assert.strictEqual(native[0][0], "org.aerograb.nativehost");
     assert.deepStrictEqual([native[0][1].cmd, native[0][1].job.url, native[0][1].job.cookie, typeof native[0][1].job.userAgent], ["add", JOB.url, "sid=abc", "string"]);
     assert.strictEqual(calls.length, 0);
-    console.log("PASS send goes through the native host (host name org.opendm.nativehost), with cookies and user-agent, and no HTTP call, port or token");
+    console.log("PASS send goes through the native host (host name org.aerograb.nativehost), with cookies and user-agent, and no HTTP call, port or token");
 
     // 2. the host isn't installed / isn't allowed -> use the manual token path
     reset(); hostBehaviour = () => { throw new Error("Specified native messaging host not found."); }; mem.token = "TKN";
     assert.deepStrictEqual(await msg({ cmd: "send", job: JOB }), { ok: true });
-    assert.strictEqual(calls.length, 1); assert.strictEqual(calls[0][1].headers["X-OpenDM-Token"], "TKN"); assert.strictEqual(JSON.parse(calls[0][1].body).url, JOB.url);
+    assert.strictEqual(calls.length, 1); assert.strictEqual(calls[0][1].headers["X-AeroGrab-Token"], "TKN"); assert.strictEqual(JSON.parse(calls[0][1].body).url, JOB.url);
     console.log("PASS host not registered -> falls back to the pairing-token connection");
 
     // 3. the host answered "no": that is final (a second route would only hide the reason)
-    reset(); hostBehaviour = () => ({ ok: false, error: "OpenDM isn't running. Start it, or tick 'Start OpenDM when the browser sends a download'." }); mem.token = "TKN";
+    reset(); hostBehaviour = () => ({ ok: false, error: "AeroGrab isn't running. Start it, or tick 'Start AeroGrab when the browser sends a download'." }); mem.token = "TKN";
     const r3 = await msg({ cmd: "send", job: JOB });
     assert.strictEqual(r3.ok, false); assert(/isn't running/.test(r3.error)); assert.strictEqual(calls.length, 0);
-    console.log("PASS an error from OpenDM is reported as-is, with no silent retry over HTTP");
+    console.log("PASS an error from AeroGrab is reported as-is, with no silent retry over HTTP");
 
     // 4. nothing works and nothing is paired: say how to fix it
     reset(); hostBehaviour = () => { throw new Error("Native host has exited."); };
@@ -55,16 +55,16 @@ const JOB = { url: "https://cdn.test/a.zip", referer: "https://site.test/", file
     assert.strictEqual((await msg({ cmd: "status" })).mode, "manual");
     delete mem.token; const none = await msg({ cmd: "status" });
     assert.deepStrictEqual([none.mode, none.error], ["none", "not found"]);
-    console.log("PASS status reports native / native-but-OpenDM-stopped / manual token / not connected");
+    console.log("PASS status reports native / native-but-AeroGrab-stopped / manual token / not connected");
 
-    // 6. taking over a browser download: pause it, hand it over, then remove it; if OpenDM can't take it, let the browser continue
+    // 6. taking over a browser download: pause it, hand it over, then remove it; if AeroGrab can't take it, let the browser continue
     const CAP = { intercept: true, capture_types: ["iso", "zip"], skip_types: ["png"], capture_unknown: false, exclude_sites: ["blocked.test"], min_size_kb: 0,
                   key_prevent: "alt", key_force: "shift", browsers: { chrome: true }, ctx_link: true, ctx_media: true, video_button: false };
     reset(); hostBehaviour = (m) => (m.cmd === "config" ? { ok: true, running: true, config: CAP } : { ok: true });
     await msg({ cmd: "gesture" });   // a real click precedes a real download
     await L.dl({ id: 7, url: "https://cdn.test/big.iso", referrer: "https://site.test/", filename: "C:\\Users\\me\\Downloads\\big.iso", fileSize: 9e6 });
     assert.deepStrictEqual(dl.map((x) => x[0]), ["pause", "cancel", "erase"]); assert.strictEqual(native.find((x) => x[1].cmd === "add")[1].job.filename, "big.iso");
-    // OpenDM's capture rules (Configuration > File types / General): file types, excluded sites, unknown types, prevent / force keys, per-browser switch
+    // AeroGrab's capture rules (Configuration > File types / General): file types, excluded sites, unknown types, prevent / force keys, per-browser switch
     const adds = () => native.filter((x) => x[1].cmd === "add").length;
     let skew = 0; const realNow = Date.now; Date.now = () => realNow() + skew;   // each case runs "later", clear of the burst cap
     const tryDl = async (id, url, mods) => { skew += 30000; reset(); await msg({ cmd: "gesture", ...mods }); const n0 = adds(); await L.dl({ id, url, referrer: "https://site.test/" }); return adds() - n0; };
@@ -79,7 +79,7 @@ const JOB = { url: "https://cdn.test/a.zip", referer: "https://site.test/", file
     skew += 30000; reset(); hostBehaviour = () => ({ ok: false, error: "nope" });
     await L.dl({ id: 8, url: "https://cdn.test/big2.iso", filename: "big.iso" });
     assert.deepStrictEqual(dl.map((x) => x[0]), ["pause", "resume"]);
-    console.log("PASS browser download: paused -> handed to OpenDM -> cancelled/erased; on failure it is resumed so nothing is lost");
+    console.log("PASS browser download: paused -> handed to AeroGrab -> cancelled/erased; on failure it is resumed so nothing is lost");
     reset(); mem.intercept = false; await L.dl({ id: 9, url: "https://cdn.test/x.zip" }); assert.strictEqual(native.length + dl.length, 0); mem.intercept = true;
     console.log("PASS capture switched off -> the extension leaves downloads alone");
   } catch (e) { console.error("FAIL", e.message); process.exitCode = 1; }
