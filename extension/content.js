@@ -1,4 +1,4 @@
-// AeroGrab content script - v1.8 (instant capture tip, hover button, YouTube quality list from the player's own data, no polling timers; v1.7: file names via names.js + page caption)
+// AeroGrab content script - v1.8 (hover button, YouTube quality list from the player's own data, no polling timers; v1.7: file names via names.js + page caption)
 // ONLY the IDM-style "Download this video" button on playing <video> elements (drag it, double-click resets, x hides it for that video).
 // FIX (#2): the "AeroGrab Video Sniffer" floating panel/bubble was removed completely.
 // FIX (no sound): the menu now lists yt-dlp's formats (video+audio merged by AeroGrab/ffmpeg) whenever the page is supported;
@@ -29,14 +29,14 @@
     *{box-sizing:border-box;font:13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
     .chip{font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--chip);color:var(--fg)}
     .ov{position:fixed;left:0;top:0;display:none;will-change:transform;color:var(--fg)}
-    .pill{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 7px;border-radius:15px;cursor:grab;user-select:none;touch-action:none;
+    .pill{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 7px;border-radius:0;cursor:grab;user-select:none;touch-action:none;
           background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;font-weight:600;font-size:12px;white-space:nowrap;
           box-shadow:0 2px 10px #0008,0 0 0 1px #ffffff40 inset;opacity:.88;transition:opacity .15s}
     .pill:hover,.ov.open .pill{opacity:1}
     .pill.drag{cursor:grabbing}
-    .pill img{width:18px;height:18px;pointer-events:none;border-radius:4px}
+    .pill img{width:18px;height:18px;pointer-events:none;border-radius:0}
     .pill .car{font-size:10px;opacity:.9;pointer-events:none}
-    .pill .x{all:unset;cursor:pointer;width:20px;height:20px;border-radius:10px;text-align:center;line-height:20px;font-size:15px;opacity:.85}
+    .pill .x{all:unset;cursor:pointer;width:20px;height:20px;border-radius:0;text-align:center;line-height:20px;font-size:15px;opacity:.85}
     .pill .x:hover{background:#ffffff40;opacity:1}
     .ov.compact .lbl,.ov.compact .car{display:none}
     .ov.compact .pill{padding:0 4px 0 6px}
@@ -63,15 +63,6 @@
     .mf{padding:6px 10px;font-size:11px;color:var(--sub);border-top:1px solid var(--bd);min-height:26px}
     .mf.err{color:#ef4444}
     .mi{padding:0 10px 4px;font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .tip{position:absolute;right:0;top:36px;display:none;align-items:center;gap:8px;max-width:min(360px,calc(100vw - 16px));padding:7px 8px 7px 10px;border-radius:10px;
-         background:var(--bg);color:var(--fg);border:1px solid var(--bd);box-shadow:0 6px 20px #0006;font-size:12px}
-    .ov.tipon:not(.open) .tip{display:flex}
-    .tip .tt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .tip button{all:unset;cursor:pointer;padding:3px 9px;border-radius:7px;background:#2563eb;color:#fff;font-weight:700;font-size:12px;white-space:nowrap}
-    .tip button.g{background:var(--chip);color:var(--fg)}
-    .tip .tx{padding:2px 6px;background:none;color:var(--sub);font-size:15px}
-    .pill.pulse{animation:odm 1.1s ease-out 2}
-    @keyframes odm{0%{box-shadow:0 0 0 0 #2563eb99,0 2px 10px #0008}100%{box-shadow:0 0 0 12px #2563eb00,0 2px 10px #0008}}
   `;
 
   // ---------- helpers ----------
@@ -161,7 +152,7 @@
   }
 
   // ---------- state ----------
-  let cfg = { overlay: true, ovCompact: false, toast: true };
+  let cfg = { overlay: true, ovCompact: false };
   const OV_HOME = { right: 10, top: 10 };
   const ovOff = { ...OV_HOME };   // where the button sits, measured from the video's top-right corner
   let items = [];                 // streams the background script sniffed for this tab (each may carry .audioUrl)
@@ -169,7 +160,6 @@
   const probes = new Map();       // direct file url -> undefined | null (checking) | {width,height,duration,video,audio,segment,size,useUrl} | false
   const overlays = new Map();     // <video> -> its button
   let refreshTimer = 0;
-  const toasted = new Set();      // capture tips already shown for this page (a resource is announced once)
 
   // ---------- shadow host ----------
   const host = el("div");
@@ -204,7 +194,7 @@
     }
     dataChanged();
   }
-  function dataChanged() { overlays.forEach((ov) => ov.el.classList.contains("open") && renderList(ov)); tipSoon(); }
+  function dataChanged() { overlays.forEach((ov) => ov.el.classList.contains("open") && renderList(ov)); }
   const refreshSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadItems, 300); };
 
   function shownItems() {
@@ -284,14 +274,12 @@
     ov.pill = el("div", { className: "pill", title: "Download this video with AeroGrab  (drag to move, double-click to reset)" },
       el("img", { src: ICON }), el("span", { className: "lbl", textContent: "Download this video" }), el("span", { className: "car", textContent: "▾" }),
       el("button", { className: "x", textContent: "×", title: "Hide this button for this video", onclick: (e) => { e.stopPropagation(); ov.closedKey = instKey(v); closeMenu(ov); layout(ov); } }));
-    ov.tip = el("div", { className: "tip" }, el("span", { className: "tt" }), el("button", { textContent: "Download" }), el("button", { className: "g", textContent: "Qualities" }), el("button", { className: "tx", textContent: "×", title: "Dismiss" }));
-    ov.tip.children[1].onclick = () => quickDownload(ov); ov.tip.children[2].onclick = () => { hideTip(ov); openMenu(ov); }; ov.tip.children[3].onclick = () => hideTip(ov);
     ov.info = el("div", { className: "mi" });
     ov.menu = el("div", { className: "menu" },
       el("div", { className: "mh" }, el("img", { src: ICON }), el("b", { textContent: "AeroGrab · Download this video" }),
         el("button", { textContent: "×", title: "Close", onclick: () => closeMenu(ov) })),
       el("div", { className: "mn" }, ov.nameInput), ov.info, ov.list, ov.foot);
-    ov.el = el("div", { className: "ov" }, ov.pill, ov.tip, ov.menu);
+    ov.el = el("div", { className: "ov" }, ov.pill, ov.menu);
     enableOverlayDrag(ov);
     root.append(ov.el);
     overlays.set(v, ov);
@@ -378,7 +366,6 @@
   async function openMenu(ov) {
     overlays.forEach((o) => o !== ov && closeMenu(o));
     ov.el.classList.add("open");
-    hideTip(ov);
     try { window.postMessage({ source: "aerograb-content", type: "ask" }, "*"); } catch {}   // page_hook.js answers with the player's data (YouTube)
     if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);
     ov.foot.className = "mf"; ov.foot.textContent = "Pick a quality to send it to AeroGrab.";
@@ -475,13 +462,16 @@
       const q = el("div", { className: "q", title: "Send to AeroGrab" }, el("span", { className: "ql", textContent: c.label }), el("span", { className: "chip", textContent: c.tag }),
                    el("span", { className: "qs", textContent: bits }), el("span", { className: "go", textContent: "⬇" }));
       q.onclick = async () => {
+        if (q.classList.contains("busy")) return;   // ignore a double-click while this one is being sent
         q.classList.add("busy");
-        const t0 = performance.now();
-        const r = await send({ cmd: "send", job: c.job() });   // background adds cookies + user-agent, then hands it to AeroGrab (native messaging / local API)
-        const ms = Math.round(performance.now() - t0);
+        const job = c.job();   // build the job BEFORE closing: it reads the file name typed in the menu
+        closeMenu(ov);         // v1.8.3: the menu dismisses the moment the download is triggered
+        const r = await send({ cmd: "send", job });   // background adds cookies + user-agent, then hands it to AeroGrab (native messaging / local API)
         q.classList.remove("busy");
-        if (r?.ok) { ov.foot.className = "mf"; ov.foot.textContent = "Sent to AeroGrab ✔ (" + c.label + ") · " + ms + " ms"; }
-        else { ov.foot.className = "mf err"; ov.foot.textContent = errorHint(r?.error); }
+        if (!r?.ok) {   // only a failure brings the menu back, so the reason isn't lost
+          openMenu(ov);
+          ov.foot.className = "mf err"; ov.foot.textContent = errorHint(r?.error);
+        }
       };
       out.push(q);
     }
@@ -507,33 +497,6 @@
     return mine.length && !choicesFor(ov).rows.length ? "This stream is DRM-protected. AeroGrab does not download protected content." : "";
   }
 
-  // ---- instant capture tip: appears under the button as soon as a downloadable resource is known for a video that is playing (once per resource)
-  function hideTip(ov) { ov.el.classList.remove("tipon"); ov.pill.classList.remove("pulse"); clearTimeout(ov.tipT); }
-  function showTip(ov, text) {
-    if (!cfg.toast || ov.el.classList.contains("open") || !layout(ov)) return;
-    ov.tip.firstChild.textContent = text;
-    ov.el.classList.add("tipon"); ov.pill.classList.remove("pulse"); void ov.pill.offsetWidth; ov.pill.classList.add("pulse");
-    clearTimeout(ov.tipT); ov.tipT = setTimeout(() => hideTip(ov), 7000);
-  }
-  async function quickDownload(ov) {   // the tip's Download: best quality, straight to AeroGrab's dialog
-    if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, ov.fmt || null);   // the menu may never have been opened: fill in the real name now
-    const first = choicesFor(ov).rows[0];
-    hideTip(ov);
-    if (!first) return openMenu(ov);
-    const t0 = performance.now(), r = await send({ cmd: "send", job: first.job() });
-    openMenu(ov);
-    ov.foot.className = r?.ok ? "mf" : "mf err";
-    ov.foot.textContent = r?.ok ? "Sent to AeroGrab ✔ (" + first.label + ") · " + Math.round(performance.now() - t0) + " ms" : errorHint(r?.error);
-  }
-  function maybeTip(ov) {
-    if (!cfg.toast || !ov || !ov.played || toasted.has(instKey(ov.v))) return;
-    const { rows } = choicesFor(ov);
-    if (!rows.length || protectedNote(ov)) return;
-    toasted.add(instKey(ov.v));
-    const nm = pickFor(ov.v, ov.fmt || null), r0 = rows[0];
-    showTip(ov, "Video detected" + (r0.label && !/^(Original|Best|Video)$/.test(r0.label) ? " · up to " + r0.label : "") + " — " + (nm.length > 42 ? nm.slice(0, 41) + "…" : nm));
-  }
-  function tipSoon() { clearTimeout(tipSoon.t); tipSoon.t = setTimeout(() => { for (const ov of overlays.values()) if (ov.played) maybeTip(ov); }, 60); }
 
   // ---------- finding videos: now, and as the page changes ----------
   // Look-ahead: when a video starts playing on a site yt-dlp supports, ask AeroGrab for its qualities right away (only if AeroGrab is already
@@ -545,7 +508,7 @@
     const r = await send({ cmd: "formats", url: pageUrlFor(ov.v), referer: location.href, prefetch: true });
     if (r && r.ok && ov.fmt === undefined) { ov.fmt = r; ov.speed = r.speed || 0; if (!ov.nameDirty) ov.nameInput.value = pickFor(ov.v, r); renderList(ov); }
   }
-  const markPlayed = (v) => { consider(v); const ov = overlays.get(v); if (ov) { ov.played = true; wake(); checkNav(); prefetch(ov); loadItems(); tipSoon(); } };   // v1.8: the look-ahead starts at once, not 400 ms later
+  const markPlayed = (v) => { consider(v); const ov = overlays.get(v); if (ov) { ov.played = true; wake(); checkNav(); prefetch(ov); loadItems(); } };   // v1.8: the look-ahead starts at once, not 400 ms later
   window.addEventListener("playing", (e) => e.target?.tagName === "VIDEO" && markPlayed(e.target), true);
   window.addEventListener("play", (e) => e.target?.tagName === "VIDEO" && markPlayed(e.target), true);
   window.addEventListener("loadstart", (e) => { if (e.target?.tagName === "VIDEO") { consider(e.target); wake(); } }, true);  // reels / playlists swap the source
@@ -580,7 +543,7 @@
     if (location.href === lastHref) return;
     lastHref = location.href;
     items = []; hook.yt = hook.yt && hook.yt.id === ytId() ? hook.yt : null;
-    overlays.forEach((ov) => { ov.fmt = undefined; ov.fmtMsg = ""; ov.nameDirty = false; ov.pre = ""; hideTip(ov); closeMenu(ov); });
+    overlays.forEach((ov) => { ov.fmt = undefined; ov.fmtMsg = ""; ov.nameDirty = false; ov.pre = ""; closeMenu(ov); });
     scanSoon(); wake(); loadItems();
   };
   // v1.8: no timers. The address change comes from page_hook.js ("nav"), the Navigation API, popstate/hashchange, YouTube's own events, and every scan.
@@ -592,7 +555,7 @@
     if (e.source !== window || !e.data || e.data.source !== "aerograb-hook") return;
     const { type, data } = e.data;
     if (type === "nav") checkNav();
-    else if (type === "yt-player" && data && typeof data === "object") { hook.yt = sanitizeYT(data); for (const ov of overlays.values()) { if (ov.el.classList.contains("open")) renderList(ov); } tipSoon(); }
+    else if (type === "yt-player" && data && typeof data === "object") { hook.yt = sanitizeYT(data); for (const ov of overlays.values()) { if (ov.el.classList.contains("open")) renderList(ov); } }
   });
   window.addEventListener("pointerdown", (e) => {  // a click anywhere else closes the menu
     const path = e.composedPath ? e.composedPath() : [];
@@ -603,17 +566,16 @@
   // ---------- wiring ----------
   api.runtime.onMessage.addListener((m) => {
     if (m?.cmd === "media-updated") overlays.forEach((ov) => ov.el.classList.contains("open") && refreshSoon());
-    if (m?.cmd === "media-found") { loadItems(); setTimeout(tipSoon, 120); }   // the service worker saw a stream: refresh the list, then announce it
+    if (m?.cmd === "media-found") loadItems();   // the service worker saw a stream: refresh the list (no on-page banner)
   });
   api.storage.onChanged.addListener((ch) => {
     if (ch.overlay) cfg.overlay = ch.overlay.newValue ?? true;
     if (ch.ovCompact) cfg.ovCompact = !!ch.ovCompact.newValue;
-    if (ch.toast) cfg.toast = ch.toast.newValue !== false;
     if (ch.ovOff?.newValue) Object.assign(ovOff, ch.ovOff.newValue);
     applyVisibility();
   });
-  api.storage.local.get({ overlay: true, ovCompact: false, ovOff: null, toast: true }).then((c) => {
-    cfg = { overlay: c.overlay, ovCompact: c.ovCompact, toast: c.toast !== false };
+  api.storage.local.get({ overlay: true, ovCompact: false, ovOff: null }).then((c) => {
+    cfg = { overlay: c.overlay, ovCompact: c.ovCompact };
     if (c.ovOff && Number.isFinite(c.ovOff.right) && Number.isFinite(c.ovOff.top)) Object.assign(ovOff, { right: Math.max(0, c.ovOff.right), top: Math.max(0, c.ovOff.top) });
     applyVisibility(); scan();
   });

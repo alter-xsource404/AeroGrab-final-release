@@ -54,22 +54,23 @@ const overlayEl = () => { const root = docEl.children[0].shadow; return root.chi
       { itag: 248, mime: 'video/webm; codecs="vp9"', height: 1080, fps: 30, size: 40e6, bitrate: 3e6 }, { itag: 140, mime: 'audio/mp4; codecs="mp4a"', audio: true, size: 3e6, bitrate: 128e3 } ] } } });
     await wait(200);
     const ov = overlayEl();
-    assert(/\btipon\b/.test(ov.className), "capture tip is visible after Play");
-    assert(/up to 1080p/.test(ov.children[1].firstChild.textContent) && /The Real Video Title/.test(ov.children[1].firstChild.textContent), ov.children[1].firstChild.textContent);
-    console.log("PASS Play + player data -> capture tip within 200 ms:", JSON.stringify(ov.children[1].firstChild.textContent));
+    // v1.8.3: NO floating "Video detected" banner - the overlay holds only the button and the (closed) quality menu
+    assert.strictEqual(ov.children.length, 2, "overlay = pill + menu only, no banner element");
+    assert(!/\btipon\b/.test(ov.className), "no banner after Play");
+    assert(!/Video detected/.test(JSON.stringify(ov.children.map((c) => c.textContent || ""))), "no 'Video detected' text anywhere in the overlay");
+    console.log("PASS Play + player data -> no floating notification is created");
 
-    // one-click Download in the tip: best quality, handed to AeroGrab through the yt-dlp path (it merges video + audio)
-    sent.length = 0; ov.children[1].children[1].onclick(); await wait(20);
-    const job = sent.find((m) => m.cmd === "send").job;
-    assert.deepStrictEqual([job.url, job.kind, job.quality], ["https://www.youtube.com/watch?v=abcDEF12345", "ytdlp", 1080]);
-    assert(/The Real Video Title 1080p/.test(job.filename), job.filename);
-    assert.deepStrictEqual([job.meta.site, job.meta.title, job.meta.height, job.meta.duration, job.meta.ext], ["YouTube", "The Real Video Title", 1080, 212, "mp4"]);
-    console.log("PASS tip's Download sends {watch URL, ytdlp, 1080p, real title, meta} to AeroGrab");
+    // the button itself is untouched by the removal
+    sent.length = 0;
+    assert(!/\bopen\b/.test(ov.className), "menu closed before the user opens it");
+    ov.children[0].onclick && ov.children[0].onclick({ stopPropagation() {}, preventDefault() {} });
+    await wait(20);
+    console.log("PASS button still present and clickable without any banner");
 
-    // the tip is announced once per video, not again for the same resource
-    ov.className = ov.className.replace("tipon", ""); for (const f of WL.message) f({ source: WIN, data: { source: "aerograb-hook", type: "yt-player", data: { id: "abcDEF12345", title: "The Real Video Title", status: "OK", formats: [{ itag: 137, mime: "video/mp4", height: 1080, size: 1 }] } } });
-    await wait(150); assert(!/\btipon\b/.test(overlayEl().className), "no duplicate notification");
-    console.log("PASS no duplicate capture notification for the same video");
+    // the same video announced again: still nothing appears
+    for (const f of WL.message) f({ source: WIN, data: { source: "aerograb-hook", type: "yt-player", data: { id: "abcDEF12345", title: "The Real Video Title", status: "OK", formats: [{ itag: 137, mime: "video/mp4", height: 1080, size: 1 }] } } });
+    await wait(150); assert(!/\btipon\b/.test(overlayEl().className), "still no banner");
+    console.log("PASS repeated detection never raises a banner");
 
     // DRM-flagged video: no rows, no tip
     sandbox.location.href = "https://www.youtube.com/watch?v=drmDRM12345";

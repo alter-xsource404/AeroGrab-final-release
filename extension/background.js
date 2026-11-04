@@ -68,7 +68,7 @@ async function sendToAeroGrab(job) {
 async function sendNow(job) {
   const t0 = performance.now(), rec = { t: Date.now(), kind: job.kind || "file", ok: false, ms: 0 };
   try {
-    const full = { ...job, ts: Date.now(), cookie: await cookieHeader(job.url), userAgent: navigator.userAgent };
+    const full = { ...job, ts: Date.now(), cookie: job.cookie ?? await cookieHeader(job.url), userAgent: navigator.userAgent };
     let reply = null, nativeError = "";
     try { reply = await nativeCall({ cmd: "add", job: full }); } catch (e) { nativeError = e?.message || String(e); }  // host not registered / not allowed
     if (reply) {
@@ -120,10 +120,12 @@ async function buildMenus(cap) {
   if (cap.ctx_media !== false) api.contextMenus.create({ id: "dl-media", title: "Download media with AeroGrab", contexts: ["video", "audio", "image"] });
 }
 
-async function getCapture(maxAge = 60e3) {
-  if (capCache.cfg && Date.now() - capCache.t < maxAge) return capCache.cfg;
+// v1.8.2: stale-while-revalidate. A download must never wait for a round trip to AeroGrab just to learn the capture rules: the last known rules
+// (memory, else storage) answer at once and a refresh runs in the background (shared by all callers). Only maxAge = 0 (start-up) waits.
+let capRefresh = null;
+async function refreshCapture() {
   let fresh = null;
-  try { const r = await nativeCall({ cmd: "config" }); if (r?.ok && r.config) fresh = r.config; } catch {}
+  try { const r = await nativeCall({ cmd: "config" }, 10000); if (r?.ok && r.config) fresh = r.config; } catch {}
   if (!fresh) {
     try {
       const c = await getCfg();
@@ -142,6 +144,19 @@ async function getCapture(maxAge = 60e3) {
   capCache = { t: Date.now(), cfg };
   return cfg;
 }
+const revalidateCapture = () => (capRefresh ??= refreshCapture().catch(() => capCache.cfg || DEFAULT_CAP).finally(() => { capRefresh = null; }));
+async function getCapture(maxAge = 60e3) {
+  if (maxAge === 0) return revalidateCapture();
+  if (capCache.cfg) {
+    if (Date.now() - capCache.t >= maxAge) revalidateCapture();   // refresh behind the scenes, answer now
+    return capCache.cfg;
+  }
+  try {   // service worker just woke up: the stored rules are one local read away; the live answer follows in the background
+    const stored = (await api.storage.local.get({ capture: null })).capture;
+    if (stored) { capCache = { t: 0, cfg: { ...DEFAULT_CAP, ...stored } }; revalidateCapture(); return capCache.cfg; }
+  } catch {}
+  return revalidateCapture();   // very first run only: nothing known yet
+}
 
 const extOf = (s) => { const m = /\.([a-z0-9]{1,10})$/i.exec(String(s || "").split(/[?#]/)[0]); return m ? m[1].toLowerCase() : ""; };
 const hostMatch = (host, pats) => (pats || []).some((p) => {
@@ -158,7 +173,9 @@ function captureAllowed(cap, url, filename, forced) {
   if ((cap.capture_types || []).includes(ext)) return true;
   return cap.capture_unknown !== false;
 }
-async function browserName() {
+let browserP = null;
+const browserName = () => (browserP ??= detectBrowser());
+async function detectBrowser() {
   const ua = navigator.userAgent;
   if (/Firefox\//.test(ua)) return "firefox";
   if (/Edg\//.test(ua)) return "edge";
@@ -176,11 +193,14 @@ let lastGesture = 0, lastMods = {};
 const recentUrls = new Map();   // url -> time AeroGrab was last offered it
 const burstTimes = [];
 
+let winFocused = true, focusEvents = false;   // v1.8.2: tracked from focus events (when the browser delivers them), so the common case costs no API call
+try { if (api.windows?.onFocusChanged) { api.windows.onFocusChanged.addListener((id) => { winFocused = id !== (api.windows.WINDOW_ID_NONE ?? -1); }); focusEvents = true; } } catch {}
 async function windowFocused() {
+  if (focusEvents && winFocused) return true;
   try { const w = await api.windows?.getLastFocused?.(); return !w || w.focused !== false; } catch { return true; }
 }
 
-async function shouldCapture(item, url) {
+async function shouldCapture(item, url, focusP) {
   const now = Date.now();
   if (item.byExtensionId) return false;                                   // started by another extension
   if (item.state && item.state !== "in_progress") return false;           // finished / interrupted old item
@@ -188,7 +208,7 @@ async function shouldCapture(item, url) {
   if (started && now - started > FRESH_MS) return false;                 // restored or old item, not a new click
   for (const [u, t] of recentUrls) if (now - t > DEDUPE_MS) recentUrls.delete(u);
   if (recentUrls.has(url)) return false;                                  // already offered a moment ago
-  if (!(await windowFocused())) return false;                             // user is not in the browser
+  if (!(await (focusP || windowFocused()))) return false;                 // user is not in the browser
   const typed = !item.referrer;                                           // address bar / bookmark: no page involved
   if (!typed && now - lastGesture > GESTURE_MS) return false;             // page script started it without the user
   while (burstTimes.length && now - burstTimes[0] > BURST_MS) burstTimes.shift();
@@ -198,26 +218,31 @@ async function shouldCapture(item, url) {
 }
 
 api.downloads.onCreated.addListener(async (item) => {
-  const cfg = await getCfg();
   const url = item.finalUrl || item.url;
-  if (!cfg.intercept || !/^https?:/i.test(url)) return;
-  const cap = await getCapture();
+  if (!/^https?:/i.test(url)) return;
+  // v1.8.2: start everything the hand-over needs at once; nothing below waits for something it does not need yet.
+  const cookieP = cookieHeader(url), cfgP = getCfg(), capP = getCapture(), nameP = browserName(), focusP = windowFocused();
+  const [cfg, cap, bName] = await Promise.all([cfgP, capP, nameP]);
+  if (!cfg.intercept) return;
   if (!cap.intercept) return;                                             // "Capture downloads from browsers" is off in AeroGrab
-  if (cap.browsers && cap.browsers[await browserName()] === false) return; // this browser is switched off in AeroGrab
+  if (cap.browsers && cap.browsers[bName] === false) return;              // this browser is switched off in AeroGrab
   const fresh = Date.now() - lastGesture < GESTURE_MS, held = (k) => fresh && k && k !== "none" && !!lastMods[k];
   if (held(cap.key_prevent)) return;                                      // the "let the browser do it" key was held
   if (!captureAllowed(cap, url, item.filename, held(cap.key_force))) return;   // file type / excluded site
   const minKB = Math.max(cfg.minSizeKB || 0, cap.min_size_kb || 0);
   if (minKB && item.fileSize > 0 && item.fileSize < minKB * 1024) return;
-  if (!(await shouldCapture(item, url))) return;                          // not the user's download: leave it to the browser
-  try { await api.downloads.pause(item.id); } catch {}  // keep the browser's copy from finishing while AeroGrab (maybe starting up) takes over
+  if (!(await shouldCapture(item, url, focusP))) return;                  // not the user's download: leave it to the browser
+  // Pause (keeps the browser's copy from finishing) runs alongside the hand-over instead of in front of it.
+  const paused = Promise.resolve(api.downloads.pause(item.id)).catch(() => {});
   try {
     const name = item.filename ? item.filename.split(/[\\/]/).pop() : "";
-    await sendToAeroGrab({ url, referer: item.referrer || "", filename: name });
+    await sendToAeroGrab({ url, referer: item.referrer || "", filename: name, cookie: await cookieP });
+    await paused;
     await api.downloads.cancel(item.id);
     await api.downloads.erase({ id: item.id });
   } catch (e) {
     console.warn("AeroGrab unavailable, browser will download it:", e.message);
+    await paused;
     try { await api.downloads.resume(item.id); } catch {}  // AeroGrab couldn't take it: let the browser carry on
   }
 });
@@ -242,8 +267,8 @@ const kindOf = (url) => (/\.m3u8(\?|#|$)/i.test(url) ? "hls" : /\.mpd(\?|#|$)/i.
 const CAPS = { media: 40, image: 20, other: 20 };   // per-tab list limits per class, so a page full of thumbnails can't push a video out
 const classOf = (m) => (m.category === "image" ? "image" : m.category === "video" || m.category === "audio" || m.category === "stream" ? "media" : "other");
 const flags = { images: true, push: true };
-api.storage.local.get({ detectImages: true, toast: true }).then((c) => { flags.images = c.detectImages !== false; flags.push = c.toast !== false; }).catch(() => {});
-api.storage.onChanged?.addListener((ch) => { if (ch.detectImages) flags.images = ch.detectImages.newValue !== false; if (ch.toast) flags.push = ch.toast.newValue !== false; });
+api.storage.local.get({ detectImages: true }).then((c) => { flags.images = c.detectImages !== false; }).catch(() => {});
+api.storage.onChanged?.addListener((ch) => { if (ch.detectImages) flags.images = ch.detectImages.newValue !== false; });
 
 // FIX (no sound): DASH sites (Facebook, Instagram, Reels, YouTube) serve picture and sound as two separate files.
 // Fallback role detection for sites without an adapter:  1) content-type audio/*   2) ?mime=audio/..   3) ?efg=<base64 json>.vencode_tag
@@ -615,6 +640,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = (p) => { p.then(sendResponse, (e) => sendResponse({ ok: false, error: e.message })); return true; };
   switch (msg?.cmd) {
     case "gesture": lastGesture = Date.now(); lastMods = { alt: !!msg.alt, ctrl: !!msg.ctrl, shift: !!msg.shift }; return false;   // real click/key in a page (content.js)
+    case "capture-refresh": return reply(revalidateCapture().then(() => ({ ok: true })));   // force a fresh read of AeroGrab's capture rules
     case "cfg": return reply(getCapture(5 * 60e3));   // content.js: should the "Download this video" button show?
     case "send": return reply(sendToAeroGrab(msg.job).then(() => ({ ok: true })));
     case "status": return reply(connectionStatus().then((s) => ({ ok: true, ...s })));

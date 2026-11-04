@@ -25,10 +25,11 @@ from collections import deque
 import urllib.request, urllib.parse
 from email.message import Message
 
-__version__ = "1.8.1"
+__version__ = "1.8.3"
 APP_NAME = "AeroGrab"
 APP_TAGLINE = "The Download Manager You Need"
-APP_TITLE = f"{APP_NAME} - {APP_TAGLINE}"   # window title + header text
+APP_NAME_VER = f"{APP_NAME} v{__version__}"   # name + version, shown in the window title and the header
+APP_TITLE = f"{APP_NAME_VER} - {APP_TAGLINE}"   # window title + header text
 UA = f"Mozilla/5.0 (compatible; AeroGrab/{__version__})"
 CHUNK = 64 * 1024
 MAIN_QUEUE = "Main download queue"
@@ -5472,7 +5473,7 @@ class NativeHost:
         self.launch()
         end = time.time() + self.wait_seconds
         while time.time() < end:
-            self.sleep(0.25)
+            self.sleep(0.05)   # v1.8.2: was 0.25 s - the first window appears as soon as the server answers
             if self.alive():
                 return
         raise HostError("AeroGrab was started but did not become ready in time. Open it manually and try again.")
@@ -5577,7 +5578,7 @@ class NativeHost:
                 return finish(1)
             if msg is None:
                 break
-            if isinstance(msg, dict) and msg.get("cmd") == "formats":
+            if isinstance(msg, dict) and (msg.get("cmd") == "formats" or (msg.get("id") is not None and msg.get("cmd") in ("config", "ping", "start"))):  # v1.8.2: with an id (the extension always sends one) a settings refresh or ping can no longer hold up a download; "add" and id-less messages stay in order on this thread
                 t = threading.Thread(target=respond, args=(msg,), daemon=True)
                 t.start()
                 workers.append(t)
@@ -6186,6 +6187,7 @@ class App:
                   foreground=[("pressed", p["accent_fg"]), ("disabled", p["muted"])])
         s.configure("Toolbutton", background=p["bg"], foreground=p["fg"])
         s.configure("Brand.TLabel", background=p["bg"], foreground=p["accent"], font=("TkDefaultFont", 17, "bold"))
+        s.configure("BrandVer.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 10, "bold"))
         s.configure("BrandDash.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 12))
         s.configure("Tagline.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 11))
         s.map("Toolbutton", background=[("pressed", p["accent"]), ("active", p["button_active"])], foreground=[("disabled", p["muted"])])
@@ -6396,6 +6398,7 @@ class App:
         self.brand = ttk.Frame(root, padding=(10, 6, 10, 0))
         self.brand.grid(row=0, column=0, sticky="ew")
         ttk.Label(self.brand, text=APP_NAME, style="Brand.TLabel").pack(side="left")
+        ttk.Label(self.brand, text=f"v{__version__}", style="BrandVer.TLabel").pack(side="left", padx=(6, 0), pady=(5, 0))   # version right beside the name
         ttk.Label(self.brand, text="  -  ", style="BrandDash.TLabel").pack(side="left")
         ttk.Label(self.brand, text=APP_TAGLINE, style="Tagline.TLabel").pack(side="left", pady=(3, 0))
         # toolbar: big icon above the label, flat buttons, grouped by separators
@@ -7130,7 +7133,7 @@ class App:
                 if not win.winfo_exists():
                     return
                 if "r" not in box:
-                    return win.after(300, poll)
+                    return win.after(60, poll)
                 n, z = box["r"]
                 if n:
                     name.set(n)

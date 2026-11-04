@@ -1,4 +1,4 @@
-#define AppVersion "1.8.1"
+#define AppVersion "1.8.3"
 #define AppPublisher "NovaTorrent Forge"
 #define AppURL "https://github.com/alter-xsource404/AeroGrab-final-release"
 #define AppSupportURL "https://github.com/alter-xsource404/AeroGrab-final-release"

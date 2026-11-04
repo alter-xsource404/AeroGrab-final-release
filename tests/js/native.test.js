@@ -67,7 +67,8 @@ const JOB = { url: "https://cdn.test/a.zip", referer: "https://site.test/", file
     // AeroGrab's capture rules (Configuration > File types / General): file types, excluded sites, unknown types, prevent / force keys, per-browser switch
     const adds = () => native.filter((x) => x[1].cmd === "add").length;
     let skew = 0; const realNow = Date.now; Date.now = () => realNow() + skew;   // each case runs "later", clear of the burst cap
-    const tryDl = async (id, url, mods) => { skew += 30000; reset(); await msg({ cmd: "gesture", ...mods }); const n0 = adds(); await L.dl({ id, url, referrer: "https://site.test/" }); return adds() - n0; };
+    const tryDl = async (id, url, mods) => { skew += 30000; reset(); await msg({ cmd: "capture-refresh" }); await msg({ cmd: "gesture", ...mods });   // rules are served from cache and refreshed in the background (v1.8.2); force the refresh so each case sees the current rules
+    const n0 = adds(); await L.dl({ id, url, referrer: "https://site.test/" }); return adds() - n0; };
     assert.strictEqual(await tryDl(20, "https://cdn.test/pic.png"), 0, "skip list");
     assert.strictEqual(await tryDl(21, "https://blocked.test/file.zip"), 0, "excluded site");
     assert.strictEqual(await tryDl(22, "https://cdn.test/file.bin"), 0, "unknown type with the switch off");

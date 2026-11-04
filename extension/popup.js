@@ -11,11 +11,10 @@ const nameOf = (m) => {
 const safe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
 
 (async () => {
-  const c = await api.storage.local.get({ intercept: true, overlay: true, toast: true, detectImages: true });
-  $("on").checked = c.intercept; $("ovr").checked = c.overlay; $("tip").checked = c.toast; $("img").checked = c.detectImages;
+  const c = await api.storage.local.get({ intercept: true, overlay: true, detectImages: true });
+  $("on").checked = c.intercept; $("ovr").checked = c.overlay; $("img").checked = c.detectImages;
   $("on").onchange = (e) => api.storage.local.set({ intercept: e.target.checked });
   $("ovr").onchange = (e) => api.storage.local.set({ overlay: e.target.checked });
-  $("tip").onchange = (e) => api.storage.local.set({ toast: e.target.checked });
   $("img").onchange = (e) => api.storage.local.set({ detectImages: e.target.checked });
   api.runtime.sendMessage({ cmd: "status" }).then((s) => {
     $("conn").textContent = s?.mode === "native" || s?.mode === "manual"

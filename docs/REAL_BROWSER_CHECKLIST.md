@@ -8,7 +8,7 @@ v1.8.0 was verified with automated tests only (stubbed browser APIs, a fake DOM,
 - [ ] `pip install yt-dlp` (or the bundled one) is available to AeroGrab; ffmpeg next to aerograb.exe.
 
 ## YouTube (the main fix)
-- [ ] Open a normal video, press Play. Within ~0.5 s a tip "Video detected - up to <res>p - <title>" appears under the AeroGrab button.
+- [ ] Open a normal video, press Play. NO floating "Video detected" banner appears anywhere on the page; only the "Download this video" button is shown (v1.8.3).
 - [ ] Open the menu: qualities appear at once (sizes marked as estimates); a second later sizes are refined (yt-dlp). Only heights that really exist are shown.
 - [ ] Click a quality: AeroGrab's dialog opens with the real video title as file name, quality/format/length in the size line. Start Download -> mp4 with sound.
 - [ ] Click another video in the sidebar (no page reload): old qualities disappear, the new video's tip appears.

@@ -6,6 +6,32 @@
 - `~/.opendm` is moved to `~/.aerograb` on first start. Re-run Browser integration once so the browser finds the renamed native host.
 - Firefox add-on id is now `aerograb@alter-xsource404.github.io`.
 
+## 1.8.3 - quality menu closes on download, no floating banner, square button, version in the window
+- The "Download this video" quality menu now dismisses the instant a quality is picked (or the tip's Download button is pressed), instead of staying open in the background.
+- If the hand-over fails, the menu reopens with the error message so the reason is not lost.
+- Removed the separate floating "Video detected - up to ... Download / Qualities / x" banner that popped up when a video was detected or started playing. Nothing is injected into the page apart from the "Download this video" button and its quality menu.
+- The "Download this video" button is now a sharp rectangle: `border-radius: 0` on the button, its icon and its hide (x) control.
+- Version bumped to **1.8.3** everywhere: app (`__version__`), browser extension (Chrome/Edge and Firefox manifests), Windows file/product version (`version_info.txt`) and installer (`branding.iss`).
+- The main window now shows the version next to the app name: header "AeroGrab v1.8.1 - The Download Manager You Need" and the same in the title bar. It reads `__version__`, so it follows every future version bump.
+- Removed the now-pointless "Announce detected videos when they start playing" switch from the toolbar popup. The button's quality list still refreshes live as streams are detected.
+
+## 1.8.2 - instant download hand-over
+Focus: remove the pause between a download command in the browser and AeroGrab's dialog.
+
+Causes found (browser -> native host -> app path; the app's own server and dialog were already fast):
+1. The extension ran its checks one after another before handing the link over: settings, capture rules, window focus, browser name, pause, cookies. Once the 60 s rules cache expired, the next download **waited for a full round trip to AeroGrab** just to re-read the rules.
+2. The native host handled `config`/`ping` on its only reader thread, so a slow settings refresh could hold up the `add`.
+3. Cold start (AeroGrab not running) polled for readiness every 250 ms.
+
+Fixes:
+- Capture rules are served from memory/storage immediately and refreshed in the background (stale-while-revalidate). Rules edited in AeroGrab apply from the next download after the refresh (<= 1 min); `capture-refresh` message forces it.
+- Cookies, settings, rules, browser name and window focus are fetched in parallel; focus is tracked from events (no API call); the browser's own copy is paused alongside the hand-over, not in front of it.
+- Native host: `config`/`ping`/`start` that carry an id run on worker threads; `add` is never queued behind them. Messages without an id keep their order.
+- Cold start polls every 50 ms; the dialog's name/size probe result shows within 60 ms (was 300 ms).
+- Tests: `tests/test_v182.py`; `native.test.js` updated for background refresh.
+
+Not measured: no real browser here, so the actual milliseconds saved are unverified. The extension's popup still shows the measured hand-over time.
+
 ## 1.8.1
 Focus: YouTube and "any site" downloads that actually work, and failures that explain themselves.
 
