@@ -1,10 +1,33 @@
 # Changelog
 
+## Unreleased - Modern Premium redesign
+**Look**
+- New design system (`aerograb_theme.py`, `aerograb_icons.py`): Premium Dark (default) and Premium Light themes with hand-tuned status colours, WCAG AA text contrast, Inter / Segoe UI Variable typography and Lucide icons (88 glyphs, tinted per theme).
+- Live theme switching with no restart: header sun / moon button, *View > Theme* (Dark / Light / Follow system) and *Options > Appearance*. Saved in the existing settings; new installs start in Dark. Existing skins and accent colours still work.
+- Header with logo, name, version, a downloads search box and the theme switch. The menu bar is now themed (Windows draws a native menu bar white regardless of colours); menus have icons, disabled entries dim, Alt+letter still opens them.
+- Toolbar: flat rounded buttons, tinted icons with disabled variants, tooltips on every button, grouped by separators; it drops to icons-only by itself when the window is too narrow (small screens, high DPI).
+- Navigation tree: Lucide icons, chevrons, right-aligned counts, soft accent selection.
+- Download table: status icons, zebra rows, hover, soft selection, right-aligned numbers, long names end in an ellipsis, thin progress bar under active rows, horizontal scrollbar when needed, in-place updates (only changed rows are rewritten).
+- Message boxes, input prompts and the About window are themed (the OS ones cannot be coloured). New About window with logo, runtime info and licence credits. Primary actions use the accent button.
+- Windows: DPI awareness (sharp at 125 / 150 / 200 %), dark or light title bar following the theme, caption colour on Windows 11.
+
+**Removed**
+- The live speed graph, everywhere (panel, View menu item, per-download and total history, helpers, tests, docs). The segment map stays as a slim strip (*View > Segment map*).
+
+**Tests**
+- New `tests/test_theme.py` (contrast audit, icon pack, raster, live switch, persistence across restarts, no leaked images). `gui_smoke.py` now selects Options tabs by name (it had gone stale) and patches the themed dialogs.
+
 ## Rename: OpenDM -> AeroGrab
 - App, extension ("AeroGrab Companion"), CLI/binaries (`aerograb`), native host (`org.aerograb.nativehost`), env vars (`AEROGRAB_HOME`, `AEROGRAB_FFMPEG`), repo URL (https://github.com/alter-xsource404/AeroGrab-final-release) and all docs renamed.
 - Window title / header: "AeroGrab - The Download Manager You Need". New logo + all icon sizes regenerated.
 - `~/.opendm` is moved to `~/.aerograb` on first start. Re-run Browser integration once so the browser finds the renamed native host.
 - Firefox add-on id is now `aerograb@alter-xsource404.github.io`.
+
+## 1.8.4 (single instance, applied on top of 1.8.3 - version number unchanged)
+- Only ONE AeroGrab GUI per user session. Ownership = named Windows mutex `Local\AeroGrab.SingleInstance` (flock on `~/.aerograb/instance.lock` off Windows); both are released by the OS if the process crashes, so no stale locks.
+- A later launch (desktop / Start menu / Apps shortcut, browser start, sign-in autostart) sends `show` (or `ping` for `--minimized` launches) over a named pipe / unix socket (`multiprocessing.connection`, keyed from the pairing token) to the running instance and exits at once: no second tray icon, no second server or workers, downloads untouched.
+- The running window restores from the tray/taskbar and takes focus. Exit (tray menu, now "Exit AeroGrab") stops the pipe, releases the lock and ends the process.
+- If the owner never answers, the launcher raises its window by title and exits instead of starting a second copy.
 
 ## 1.8.3 - quality menu closes on download, no floating banner, square button, version in the window
 - The "Download this video" quality menu now dismisses the instant a quality is picked (or the tip's Download button is pressed), instead of staying open in the background.

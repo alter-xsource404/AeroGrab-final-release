@@ -2,7 +2,8 @@
 
 # AeroGrab
 
-![AeroGrab's main window, laid out like a classic download manager](docs/screenshot.png)
+![AeroGrab's main window in the Premium Dark theme](docs/screenshot.png)
+![The same window in the Premium Light theme](docs/screenshot-light.png)
 
 A free, open-source download manager for Windows, macOS and Linux, inspired by tools like IDM.
 One Python file, no dependencies for the basics.
@@ -18,9 +19,10 @@ One Python file, no dependencies for the basics.
 - **Queue, speed limit, scheduler:** global and per-download speed limits you can change mid-download; run only between chosen hours (overnight windows work); optionally exit or shut down when finished.
 - **Categories and auto-sorting:** downloads are sorted into `Video`, `Documents`, `Music`, `Compressed`, `Images`, `Programs` and `General` folders by file type (or by website), using the file's real name even when the server only reveals it after the download starts. A sidebar filters the list by category, *Unfinished* and *Finished*, with live counts. Add, rename and edit categories, or move a download with right-click > *Move to category*.
 - **System tray:** an icon with a quick menu (show, pause/resume all, speed limit, open folder, quit), a tooltip with the live status, balloon notifications when a download finishes or fails, and *close to tray* so downloads carry on in the background.
-- **A classic download-manager window:** menu bar (Tasks, File, Downloads, View, Help, Registration), an icon toolbar, a navigation tree (All Downloads with its categories, Unfinished, Finished, Grabber projects, Queues) and a sortable list with File Name, Q, Size, Status, Time left, Transfer rate, Last Try and Description columns.
+- **A modern download-manager window:** a branded header with search and a Dark / Light switch, menu bar (Tasks, File, Downloads, View, Help, Registration), an icon toolbar, a navigation tree (All Downloads with its categories, Unfinished, Finished, Grabber projects, Queues) and a sortable list with File Name, Q, Size, Status, Time left, Transfer rate, Last Try and Description columns.
 - **Queues and a site grabber:** keep downloads in named queues you can start and stop together, and scan any web page for the images, videos, documents or archives it links to.
-- **Live speed graph:** a 60-second speed chart (all downloads, or just the one you select) with Now / Peak / Avg, plus a segment map showing which parts of the file each connection has filled.
+- **Segment map:** a slim strip under the list showing which parts of the selected file each connection has filled (*View > Segment map*). Active rows also carry a thin progress bar under their status.
+- **Dark and Light themes:** the Premium Dark (default) and Premium Light themes switch live, with no restart - from the sun / moon button in the header, *View > Theme* or *Options > Appearance* - and the choice is remembered. Icons are Lucide, tinted per theme; the font is Inter or Segoe UI Variable when installed. Text meets WCAG AA contrast in both themes.
 - **Video downloads:** HLS (`.m3u8`) streams with quality selection, AES-128 decryption and ffmpeg muxing to `.mp4`; DASH (`.mpd`) manifests through ffmpeg; and YouTube, Facebook, Instagram, Vimeo, TikTok and similar sites through yt-dlp.
 - **Browser integration:** a Chrome/Edge/Brave/Firefox extension that takes over downloads, adds a right-click menu, and adds an IDM-style **Download this video** button with a quality picker on playing videos.
 - **Antivirus check:** finished files are scanned by **Windows Defender** (`MpCmdRun.exe -Scan`) or **ClamAV** (`clamscan`) if one is installed, and the verdict is shown in the *Download complete* window and the Status column. AeroGrab bundles no engine, only reports (it never deletes or quarantines), and never auto-opens a flagged file. *File > Scan for viruses* re-checks a file; `--scan` does it on the command line. *Options > Extras.*
@@ -31,6 +33,9 @@ One Python file, no dependencies for the basics.
 - **GUI and CLI.**
 
 AeroGrab is an independent project. It is clean-room code written from public specifications (HTTP/1.1 Range requests, HLS). It contains no code from, and is not affiliated with, any commercial download manager.
+
+## Design system
+The look is defined in two small modules next to `aerograb.py`: `aerograb_theme.py` (colour tokens, the Dark / Light palettes, fonts, the ttk style engine, DPI helpers) and `aerograb_icons.py` (the Lucide glyphs as compact alpha masks, tinted at run time). Nothing in the window hard-codes a colour, so a theme switch only re-colours widgets: the download engine, queues and settings are never touched. Both files must ship with `aerograb.py` when you run from source (PyInstaller picks them up by itself). Icon licence: `assets/LUCIDE_LICENSE.txt`.
 
 ## Install
 
@@ -60,7 +65,7 @@ Other options: `--scan` (CLI: scan each finished file with Defender / ClamAV, ex
 
 | Part | What it does |
 |---|---|
-| **Menu bar** | *Tasks*: add a download, add all links from the clipboard, run the site grabber, export/import the list, exit. *File*: open, open folder, move/rename, redownload, properties, copy address. *Downloads*: resume, stop, delete, move to a category or queue, start/stop queue, speed limiter, scheduler, categories, options. *View*: show or hide the toolbar, categories pane, speed graph and status bar; sort. *Help*, and *Registration* (AeroGrab is free, so this just says so and shows the MIT license). |
+| **Menu bar** | *Tasks*: add a download, add all links from the clipboard, run the site grabber, export/import the list, exit. *File*: open, open folder, move/rename, redownload, properties, copy address. *Downloads*: resume, stop, delete, move to a category or queue, start/stop queue, speed limiter, scheduler, categories, options. *View*: show or hide the toolbar, categories pane, segment map and status bar; theme (Dark / Light / follow system); sort. *Help*, and *Registration* (AeroGrab is free, so this just says so and shows the MIT license). |
 | **Toolbar** | Add URL, Resume, Stop, Stop All, Delete, Delete C. (completed), Options, Scheduler, Start Queue, Stop Queue, Grabber and Browser (extension pairing). Buttons grey out when they don't apply. |
 | **Navigation tree** | *All Downloads* with a folder per category, *Unfinished*, *Finished*, *Grabber projects* (one entry per project) and *Queues*. Counts are live. Right-click a queue to start, stop, rename or delete it. Drag the divider to resize. |
 | **List** | **File Name**, **Q** (place in its queue), **Size**, **Status** (`Complete`, `45.30%`, `Stopped 12.0%`, `Queued`...), **Time left** (`2 min 15 sec`), **Transfer rate** (`1.5 MBytes/sec`), **Last Try** (`Oct 21 11:03:12 2026`), **Description** (the source site; edit it in Properties). Click a title to sort. |
@@ -84,7 +89,7 @@ Right-click a download > **Move to category** to override it: before it starts t
 Needs the optional add-on: `pip install pystray pillow` (included in the Windows and Linux builds). Turn it on or off in *Downloads > Options*.
 
 - Menu: Show AeroGrab (also double-click), Pause all, Resume all, Speed limit (No limit / 256 KB/s / 512 KB/s / 1 MB/s / 5 MB/s), Open download folder, Quit.
-- The window's close button hides AeroGrab to the tray instead of quitting (switch off in Options). Use *Quit AeroGrab* in the tray menu to exit.
+- The window's close button hides AeroGrab to the tray instead of quitting (switch off in Options). Use *Exit AeroGrab* in the tray menu to exit. Only one AeroGrab runs at a time: launching it again (shortcut, Start menu, browser) just brings the running window forward.
 - Balloon notifications appear when a download finishes or fails while the window is hidden or not in front.
 - Not available on macOS (the library needs the thread the window uses). On GNOME, install the *AppIndicator* extension to see tray icons. If the tray can't start, AeroGrab keeps working and Options says why.
 
@@ -184,7 +189,8 @@ Downloads you click are handed to AeroGrab (if AeroGrab isn't running, the brows
 python -m unittest discover -s tests -v      # core app: local servers, no internet needed
 xvfb-run -a python tests/gui_smoke.py          # drives the real window (needs a display; skips without one)
 (cd tests/js && npm install && npm test)      # extension: background logic, stream pairing, native host
-pip install pillow && python tools/make_icons.py   # regenerate all icons from code (assets/, extension/icons/, window + panel icons)
+pip install pillow && python tools/make_icons.py   # regenerate the app icon from code (assets/, extension/icons/, window + panel icons, header brand marks)
+pip install cairosvg pillow && python tools/build_icons.py <lucide>/icons   # regenerate the UI icon pack aerograb_icons.py from Lucide SVGs
 pip install -r requirements-build.txt && python build.py             # program folder dist/aerograb/ (what the installer packs; ffmpeg.exe from ./ffmpeg is copied in)
 python build.py --portable                                          # single-file exe (ffmpeg must sit next to it, or add --bundle-ffmpeg)
 ```
@@ -207,3 +213,6 @@ MIT, see [LICENSE](LICENSE).
 
 ### v1.8 media detection (browser extension)
 The extension recognises downloads by content-type, `Content-Disposition` and site-specific rules (`classify.js`, `adapters.js`), not only by file extension: video, audio, HLS/DASH, images, documents, archives and programs. YouTube streams are identified from the player's own data and request addresses; no floating banner is shown (only the "Download this video" button); the toolbar popup lists everything found in the tab. DRM-protected streams are never offered. See `CHANGELOG.md` (1.8.0) for what was tested and the known limits, and `docs/REAL_BROWSER_CHECKLIST.md` for the checks to run in a real browser.
+
+## Third-party software
+The release builds include FFmpeg (GPL v3), yt-dlp, pystray (LGPL v3) and others under their own licences: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

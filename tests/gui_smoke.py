@@ -15,6 +15,7 @@ import json, time, queue, threading, http.server, re, urllib.request, tkinter as
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aerograb, test_aerograb as T
+mb, sd = aerograb.messagebox_themed, aerograb.simpledialog_themed   # the app's themed dialogs replace the OS ones; patch those
 home = HOME
 for d in (".config/google-chrome", ".mozilla"):  # pretend Chrome and Firefox are installed (Linux registers by file)
     os.makedirs(os.path.join(HOME, d))
@@ -44,6 +45,10 @@ sys.modules.update(T._fake_pystray())
 dialogs, asks = [], []
 for n in ("showinfo", "showerror"): setattr(mb, n, lambda *a, _n=n, **k: dialogs.append((_n, str(a[1]) if len(a) > 1 else "")))
 mb.askyesno = lambda *a, **k: (dialogs.append(("askyesno", str(a[1]))), True)[1]
+for n in ("showwarning",): setattr(mb, n, lambda *a, _n=n, **k: dialogs.append((_n, str(a[1]) if len(a) > 1 else "")))
+for n in ("askokcancel", "askretrycancel"): setattr(mb, n, lambda *a, _n=n, **k: (dialogs.append((_n, str(a[1]))), True)[1])
+mb.askyesnocancel = lambda *a, **k: (dialogs.append(("askyesnocancel", str(a[1]))), True)[1]
+sd.askinteger = lambda *a, **k: asks.pop(0) if asks else None
 sd.askstring = lambda *a, **k: asks.pop(0) if asks else None
 fails = []
 def check(ok, msg):
@@ -69,7 +74,7 @@ def driver():
             for i in range(bar.index("end") + 1):
                 if bar.entrycget(i, "label") == label: return bar.nametowidget(bar.entrycget(i, "menu"))
         return ui(f)
-    def labels(m): return ui(lambda: [m.entrycget(i, "label") for i in range(m.index("end") + 1) if m.type(i) not in ("separator", "tearoff")])
+    def mlabels(m): return ui(lambda: [m.entrycget(i, "label") for i in range(m.index("end") + 1) if m.type(i) not in ("separator", "tearoff")])
     def invoke(m, label):
         def f():
             for i in range(m.index("end") + 1):
@@ -83,16 +88,17 @@ def driver():
     # ---- 1. menu bar
     top = ui(lambda: [app.menubar.entrycget(i, "label") for i in range(app.menubar.index("end") + 1)])
     check(top == ["Tasks", "File", "Downloads", "View", "Help", "Registration"], f"menu bar: {top}")
-    for name in top: print("      ", name.ljust(13), labels(menu_of(name)))
+    for name in top: print("      ", name.ljust(13), mlabels(menu_of(name)))
     # ---- 2. toolbar
     tb = ui(lambda: [(b.cget("text"), bool(str(b.cget("image")))) for b in app.tbtn.values()])
     check([t for t, _ in tb] == ["Add URL", "Resume", "Stop", "Stop All", "Delete", "Delete C.", "Options", "Scheduler", "Start Queue", "Stop Queue", "Grabber", "Browser"] and all(i for _, i in tb),
           f"toolbar: {len(tb)} icon+label buttons: {[t for t, _ in tb]}")
     check(ui(lambda: str(app.tbtn["add"].cget("compound"))) == "top", "toolbar buttons show the icon above the label (like IDM)")
     # ---- 3. navigation tree
-    def tree_text(iid=""): return ui(lambda: [(app.side.item(c, "text").strip(), tree_text_children(c)) for c in app.side.get_children(iid)])
-    def tree_text_children(c): return [app.side.item(k, "text").strip() for k in app.side.get_children(c)]
-    nav = ui(lambda: [(app.side.item(c, "text").strip(), [app.side.item(k, "text").strip() for k in app.side.get_children(c)]) for c in app.side.get_children("")])
+    def lab(c): return (app.side.item(c, "text").strip() + (f" ({app.side.set(c, 'n')})" if app.side.set(c, "n") != "" else ""))
+    def tree_text(iid=""): return ui(lambda: [(lab(c), tree_text_children(c)) for c in app.side.get_children(iid)])
+    def tree_text_children(c): return [lab(k) for k in app.side.get_children(c)]
+    nav = ui(lambda: [(app.side.item(c, "text").strip(), [lab(k) for k in app.side.get_children(c)]) for c in app.side.get_children("")])
     print("      nav:", nav)
     top_names = [re.sub(r" \(\d+\)$", "", t) for t, _ in nav]
     check(top_names == ["All Downloads", "Unfinished", "Finished", "Grabber projects", "Queues"], f"navigation tree top level: {top_names}")
@@ -154,7 +160,7 @@ def driver():
     check(sorted(found) == ["a.jpg", "b.png", "report.pdf"], f"grabber found the files on the page: {found}")
     ui(lambda: [w for w in walk(win) if w.winfo_class() == "TButton" and w.cget("text") == "Start Download"][0].invoke()); time.sleep(3)
     ui(lambda: win.destroy())
-    proj = ui(lambda: [app.side.item(i, "text").strip() for i in app.side.get_children("projects")])
+    proj = ui(lambda: [lab(i) for i in app.side.get_children("projects")])
     check(proj == ["Holiday Photos (3)"], f"'Grabber projects' now lists the project: {proj}")
     pidd = ui(lambda: next(i for i, (l, f) in app.side_map.items() if f == "project:Holiday Photos")); pick(pidd)
     check(sorted(x[0] for x in rows()) == ["a.jpg", "b.png", "report.pdf"] and all(x[3] == "Complete" for x in rows()), "selecting the project lists exactly its downloads, all complete")
@@ -186,7 +192,7 @@ def driver():
     # ---- 13. options
     invoke(menu_of("Downloads"), "Options..."); time.sleep(0.6)
     ow = ui(lambda: [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"][-1]); nb = ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TNotebook"][0])
-    tabs = ui(lambda: [nb.tab(i, "text") for i in range(nb.index("end"))]); check(tabs == ["General", "Save to", "Connection", "Browser", "Proxy", "Logins", "Appearance", "Sounds", "Extras"], f"Options has tabs: {tabs}")
+    tabs = ui(lambda: [nb.tab(i, "text") for i in range(nb.index("end"))]); check(tabs == ["General", "Save to", "Connection", "Browser", "Capture", "File types", "Proxy", "Logins", "Appearance", "Sounds", "Extras"], f"Options has tabs: {tabs}")
     spin = ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TSpinbox"]); ui(lambda: (spin[1].delete(0, "end"), spin[1].insert(0, "5")))
     ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TButton" and w.cget("text") == "OK"][0].invoke()); time.sleep(0.5)
     check(app.mgr.max_active == 5 and json.load(open(os.path.join(home, ".aerograb", "settings.json")))["max_active"] == 5, "Options > Connection: 'Maximum simultaneous downloads' applied and saved")
@@ -284,12 +290,12 @@ def driver():
     # dark theme on live widgets
     st.update(theme="dark", accent="#16a34a"); ui(app.apply_theme); time.sleep(0.3)
     pal = aerograb.PAL
-    check(pal["mode"] == "dark" and ui(lambda: app.style.lookup("Treeview", "background")) == pal["field"], "dark theme: the download list is dark")
-    got = ui(lambda: (str(app.gcv.cget("bg")), str(app.menubar.cget("bg")), str(app.root.cget("bg"))))
-    check(got == (pal["graph_bg"], pal["panel"], pal["bg"]), f"dark theme: window, menus and the speed graph follow {got} vs {(pal['graph_bg'], pal['panel'], pal['bg'])}")
+    check(pal["mode"] == "dark" and ui(lambda: app.style.lookup("Treeview", "background")) == pal["surface"], "dark theme: the download list is dark")
+    got = ui(lambda: (str(app.mapcv.cget("bg")), str(app.menubar_frame.cget("bg")), str(app.root.cget("bg"))))
+    check(got == (pal["map_bg"], pal["bg"], pal["bg"]), f"dark theme: window, menu bar and segment map follow {got} vs {(pal['map_bg'], pal['bg'], pal['bg'])}")
     ui(app.add_dialog); time.sleep(0.4); aw = last_top()
     check(ui(lambda: [w for w in walk(aw) if w.winfo_class() == "Text"][0].cget("bg")) == pal["field"], "dark theme: a dialog opened afterwards is dark too")
-    check(ui(lambda: app.style.lookup("Treeview", "background", ["selected"])) in (pal["accent"], pal["field"]), "dark theme: style lookup works for the selection colour")
+    check(ui(lambda: app.style.lookup("Treeview", "background", ["selected"])) in (pal["selected"], pal["accent"], pal["field"]), "dark theme: style lookup works for the selection colour")
     # ftp address + checksum in the Add dialog (still open)
     txt = ui(lambda: [w for w in walk(aw) if w.winfo_class() == "Text"][0]); he = entries(aw)[0]
     ui(lambda: (txt.delete("1.0", "end"), txt.insert("1.0", "ftp://h.test/a.zip\nhttp://h.test/b.zip"), he.insert(0, want)))
@@ -303,10 +309,11 @@ def driver():
     # options: proxy, appearance, sounds validation
     invoke(menu_of("Downloads"), "Options..."); time.sleep(0.6)
     ow = last_top(); nb = ui(lambda: [w for w in walk(ow) if w.winfo_class() == "TNotebook"][0])
-    frame = lambda i: ui(lambda: nb.nametowidget(nb.tabs()[i]))
+    tabix = lambda name: ui(lambda: [nb.tab(i, "text") for i in range(nb.index("end"))].index(name))   # by name: the tab order has grown over the releases
+    frame = lambda name: ui(lambda: nb.nametowidget(nb.tabs()[[nb.tab(i, "text") for i in range(nb.index("end"))].index(name)]))
     combo = lambda f, word: ui(lambda: [w for w in walk(f) if w.winfo_class() == "TCombobox" and word in str(w.cget("values"))][0])
-    f4, f6, f7 = frame(4), frame(6), frame(7)
-    ui(lambda: nb.select(4)); ui(lambda: [w for w in walk(f4) if w.winfo_class() == "TRadiobutton" and "this proxy" in w.cget("text")][0].invoke())
+    f4, f6, f7 = frame("Proxy"), frame("Appearance"), frame("Sounds")
+    proxy_ix = tabix("Proxy"); ui(lambda: nb.select(proxy_ix)); ui(lambda: [w for w in walk(f4) if w.winfo_class() == "TRadiobutton" and "this proxy" in w.cget("text")][0].invoke())
     press(ow, "OK"); time.sleep(0.3)
     check(dialogs[-1][0] == "showerror" and "proxy" in dialogs[-1][1].lower() and ui(ow.winfo_exists), "Options: 'manual proxy' without a host is refused")
     pe, cb_type, cb_theme = entries(f4), combo(f4, "socks5"), combo(f6, "Dark")
@@ -320,16 +327,16 @@ def driver():
     check(aerograb.OPENER.proxy_url == "socks5h://u:p@127.0.0.1:1080" and aerograb.PAL["mode"] == "dark", "...and take effect immediately (no restart)")
     if os.name == "posix": check(os.stat(os.path.join(home, ".aerograb", "settings.json")).st_mode & 0o777 == 0o600, "the settings file (it holds the proxy password) is readable by you only")
     st.update(proxy_mode="system", proxy_host="", proxy_user="", proxy_pass="", theme="light", accent=aerograb.DEFAULT_ACCENT); ui(app.mgr.apply_network); ui(app.apply_theme); time.sleep(0.3)
-    check(aerograb.PAL["mode"] == "light" and ui(lambda: app.gcv.cget("bg")) == "white" and ui(lambda: app.style.lookup("Treeview", "background")) != aerograb.make_palette("dark")["field"], "switching back to light restores the light look")
+    check(aerograb.PAL["mode"] == "light" and ui(lambda: str(app.mapcv.cget("bg"))) == aerograb.make_palette("light")["map_bg"] and ui(lambda: app.style.lookup("Treeview", "background")) != aerograb.make_palette("dark")["field"], "switching back to light restores the light look")
     # ---- wave 2: antivirus verdict, clipboard history, floating widget, skins, customizable toolbar
-    check("Clipboard history..." in labels(menu_of("Tasks")) and "Scan for viruses" in labels(menu_of("File")) and {"Floating widget", "Customize toolbar..."} <= set(labels(menu_of("View"))), "wave 2: menu entries are there")
+    check("Clipboard history..." in mlabels(menu_of("Tasks")) and "Scan for viruses" in mlabels(menu_of("File")) and {"Floating widget", "Customize toolbar..."} <= set(mlabels(menu_of("View"))), "wave 2: menu entries are there")
     ui(lambda: app.set_toolbar(items=["add", "|", "clip", "widget", "scan"], style="icons", size="small")); time.sleep(0.3)
     check(ui(lambda: list(app.tbtn)) == ["add", "clip", "widget", "scan"] and ui(lambda: str(app.tbtn["add"].cget("text"))) == "", "toolbar: a custom layout (icons only, small) replaces the classic one")
     ui(app.update_state); ui(app.update_toolbar)
     ui(lambda: app.set_toolbar(items=None, style="both", size="large")); time.sleep(0.3)
     check(ui(lambda: list(app.tbtn)) == [e[0] for e in aerograb.TOOLBAR if e] and ui(lambda: str(app.tbtn["add"].cget("compound"))) == "top", "toolbar: reset brings back the classic one")
     st["skin"] = "nord"; ui(app.apply_theme); time.sleep(0.3)
-    check(aerograb.PAL["mode"] == "dark" and ui(lambda: app.gcv.cget("bg")) == aerograb.SKINS["nord"][1]["graph_bg"], "skin: Nord recolours the window (and forces dark mode)")
+    check(aerograb.PAL["mode"] == "dark" and ui(lambda: str(app.mapcv.cget("bg"))) == aerograb.SKINS["nord"][1]["map_bg"], "skin: Nord recolours the window (and forces dark mode)")
     st["skin"] = "default"; ui(app.apply_theme); time.sleep(0.3)
     check(aerograb.PAL["mode"] == "light", "skin: back to default")
     ui(lambda: app.toggle_widget(True)); time.sleep(0.4)
@@ -345,7 +352,7 @@ def driver():
     # ---- screenshot: dress the list with a bit of everything
     for n in ("clip.mp4", "report.pdf", "song.mp3", "data.zip", "setup.exe"): api(f"http://127.0.0.1:18789/{n}")
     api("http://127.0.0.1:18789/slow.bin"); ui(lambda: app.mgr.add("http://127.0.0.1:18789/b.png", app.folder.get(), 1, later=True)); time.sleep(5)
-    ui(lambda: app.show_graph.set(False)); ui(app.apply_layout)
+    ui(lambda: app.show_map.set(False)); ui(app.apply_layout)
     if os.environ.get("AEROGRAB_SHOT"):
         for m in ("PIL", "PIL.Image", "pystray"): sys.modules.pop(m, None)
         from PIL import ImageGrab

@@ -22,6 +22,8 @@ try:
 except ImportError:  # a Python without TLS can still do plain http / ftp
     ssl = None
 from collections import deque
+from aerograb_theme import (DEFAULT_ACCENT, ACCENTS, SKINS, PAL, valid_hex, mix, luminance, contrast_fg, contrast_ratio, skin_names, make_palette,
+                            set_palette, Theme, enable_dpi_awareness, style_titlebar)
 import urllib.request, urllib.parse
 from email.message import Message
 
@@ -33,7 +35,6 @@ APP_TITLE = f"{APP_NAME_VER} - {APP_TAGLINE}"   # window title + header text
 UA = f"Mozilla/5.0 (compatible; AeroGrab/{__version__})"
 CHUNK = 64 * 1024
 MAIN_QUEUE = "Main download queue"
-HIST = 120  # seconds of speed history kept for the graph
 MIN_SPLIT = 1024 * 1024  # only steal work when >= 1 MiB remains in a segment
 CFG_DIR = os.environ.get("AEROGRAB_HOME") or os.path.join(os.path.expanduser("~"), ".aerograb")  # AEROGRAB_HOME: keep settings elsewhere (portable install, tests)
 if not os.environ.get("AEROGRAB_HOME"):  # one-time carry-over of settings + download list from the old OpenDM data folder
@@ -227,422 +228,122 @@ ICON_B64 = (
     "k3wmDwC+ORzPN8n3T7oFdq2eT9fhvTcFAn4zuFXyJmIYXSMivekJ3/r5/wAge21Z36K+OQAAAABJRU5ErkJggg=="
 )
 # --- end window icon ---
-# --- ui icons (regenerate with tools/make_icons.py) ---
-UI_ICONS = {
-    "add": (
-        "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"
+# --- header brand mark, pre-scaled so it stays sharp (regenerate with tools/make_icons.py) ---
+# --- brand marks ---
+BRAND_B64 = {
+    32: (
+        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAIMklEQVR42sWXW2wc5RXHf+f7ZmfXu7bXsR0HJyGxEsdAKEK50BLC"
+        "TREEaChItLQSUl+o+tSqvLcPCPXyUKk8lValF1UqqtqKCkTLNVQiiIggbiEQSLiEJE5sQuK7d3dmZ77v9GFm12uT9q3qSN9+uzsz"
+        "3/mfc/7nBsuuBw3/82u5DFl+4yEP99rqlvV3CX4v6EbwQXbfg+98/r9cBoWWHJMiMq4i++eOV5+Eh9IlWW0A2R99W75/tWJ/JybY"
+        "CYB6QEEh//gC7GWXrtBNWrtku0sOex99d/7Eo2+0ZErry6pN37vKG3NAxKxSH6fZgSrLTpYVCIT8cEA1W8uAtJ4TBRBTDFT9Aupv"
+        "nvvkkbfgXpsB2DFpe2fM68YWrlYXJ4gUssMuIjgXKsai3uGaKaCYQBAJcotdBIgIKInYsKAuOTbnGts4NdK0cECr5R13GRM+oK6R"
+        "IhQy03uQHERLU2MQYxAbkDRigkqZ6sgw5cFBXFrEJ4stjXPpugRIFQSLT1IJikMhejSeefjdAECd34d1qvj8nVyo5shFEGPAWLAB"
+        "rpkyetetjN29h951A3x2tM7xZz7H1U4yc/QptNlAkQ63tHiUm9I7xes+4C8mc5+7FHWCemlrj2YWMNLW2oYl0jhlw0272PnAt+ga"
+        "XI1LDRc+XMCnCaWhrVQvuyOzuA3AyJIV8Rmp1QuaCrj1WcAA4Aw4lglH25qLDZAgRDF0DQ5y+TfvJJr1pHFCYy5h/mwNY5W0Pku4"
+        "ajOFvksBj1i7wh1+SYZ60wFAO29cRHgBExZxiWPzvlsoD/WR1FPEBsyfbRDNRgiKpg5UKK2+ArH5u8Yg1mKsdMhoKZsDUHX58ige"
+        "bZPOgrFIEOIST9/oJjbcvIt43uHVoCrMfLqAT1LUO9R7fBIR9o5gu1Zhgowzcb1BfW4hO7+16ACAz32vHZmkw/eZKQ2jX7sNCQLS"
+        "pkMCy+z4OcYPvowtBPg0Rb0Hl2AKFWz3CI35RbzzjN18Ddfef09O7FyOOgDyNOvyrx4wOfHzsAuykBu+9sv0b91CvNAEBKPCx/98"
+        "idrEMcLyBkzQg0sT0qYD8VTXjzG2s4+xG7ez6frN1GcT3n3iWZK6Q4xrJ4lgKYt5liefLObVK2FPDyN7byGNPS5RCt0hk28c5cJ7"
+        "x7Aly/zEEUr9OyiVDWsv72PD1lUMj/XRPVCg1AcXPrnAUz/8GdHcHIVSN3ifWX3JApr7xbVjVQCMJY0iNt52B11DAyQLETYMaUzX"
+        "OP7EP0iaMeVylTUb+9h8zVqGRwfoXV1ELBAYEDjy1Kvs//kjLJyfoqu3D58mCAF+mQu8A7GgiqgieTFzcUTP+hGGr9tNcyFB1eBV"
+        "Ofn8iwwODDB6+16GN49QXdOPKSipS0kdlCqG+fMzHHrked558nGCoqUyuAYXNXIr+xUuaMVoxxJVvE/ZcOtXMWGRuBFTEEt5usH2"
+        "q3YwdOd6TAjOpcT1BoWuIqVqgcULs7z1+EGOvPAmLhimuvl64guH8YnrOF9y3rU54MBbIAsRAZL6AkM7b6R65VVECxHVRBhwjlJQ"
+        "RIbXETciJBVKPUWKpYCF6RkOP/0Sk1MxsYYM7t5DY9KS1KaIzx9BfdzKhBkA32EBr4rJY1PU49MmQbHCJXvvxtZS1swr3SJoKKTq"
+        "kWZMqVrCec/ZD47y0WuvcPKdt5k7d57tP3qIsd1foj5R59ijhxDTg+0axjXeBxU0B6DLw7CVp11WbGrzXHLr11lTXcfAuTqFosWF"
+        "oM4TlkJMQTh28ADvvfQc58dPoiag1Lea6qVjaKo0ph3NxRh1HnVC0D1KPPUu+FY2NKBZ0lnOAQEf1QjXbuCK7fsY+jxGA4sXwHmK"
+        "3V0sTp/j5b/9mvHj7xH29FMe2ogJQlShOTeDdw7F4hV8nOBdk6BrLbbQT1qfRLAdBaodBaqYjP1NF7HthvtYpz00tYaVAPWesKvE"
+        "1MRJnvvtj6lHEb3rRkEsqkpSW2T1dbvp37aDoFIhqUcQBGy8byfzH55j6tUJCr1jpIunQErLoqBdCxBoNuZZt2UXl4/eRDOqZ12P"
+        "KiYIiBbn2P+HnxI1G1QG1uKSJq7ZwKcxYpSpN17Fe0+hfzVJI0aKIabcxew7p/Guga1sQkwX6pOMBzkH2i2yugSxhm033E9BLF49"
+        "6h0+TSiEBd56/k/Mnj9NqdxH2lhA0whNYzSJUN8kXZjh4988TP3sGUy5QlqvceqxF2lOpYgIJugn6LkMdVGmve+wgDGoj+us2fNt"
+        "zoQJn18YJ+zqpliuUFnVQ31hnhOH/0Wxq5u0MY8mdbRZz/akjsY1RBzNqUlO/P4XpPU6p//6KNOv/xllmrR2lrQ2jgkHEDG59h0k"
+        "9EkybkrdKibQ8bef5uPPTtJXGaK70ostBExPHKNZm8OWevF+MXONmI5uVcF7jFXqn37AsZ/8gOb5CdCE+qd/zGtNXuLFKqqq6s4s"
+        "kVD8s+qS70w+/UuMsWCE+STKGQ1BWCQsr8I361mBEgMrAai2uRRNnACbpfbM1LrUugNgRVWfadUcA7cXSn2Lb5ogvFI1TVAtiEh7"
+        "rsj6VF1qUDFL80CbRJo1GS0hfkV/kTUDKRIEqPuoUUmv5syhqD2YlKu7tqnYA4j0oGn6hRlIVkw7rBhK2pbo3FfMTRIEoHWEPY3p"
+        "V16De62FAwoPmiR+bLIQrnsR9CtigmERMYgYhGzPbN6xY9B8tX53PtN+3xgRY0SsQd37KvqNaObgoUzxX/mLDKdbw1Jv9R6M3obX"
+        "DYoGFxkC/8N0KF/QWzBORU6L6P5odvLvcCrqHE75f4/n/wZ8+3W6qXCGOAAAAABJRU5ErkJggg=="
     ),
-    "resume": (
-        "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"
-    ),
-    "stop": (
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAF/klEQVR42p1XXYhd1RX+1trnzL0zuWPGZJK0FfwZLIgYaEwe"
-        "WiSdCZE+FF8KvSFQGhGKbSUxYMSSp8l9bhNoqC1qCcWU2mYQhEKhWJsYIRVCnEaMJfiTao2mWjIzzsyde+/Za319OOfe3Izz"
-        "c50Nm/Ny9trf+b61vrMW0MM6Va0GVqsBPS6Oj2uv78uKgUjBkSMitZoDAB9/fEtT5FsktwO4y8nNIkIhrzvwYSIyacC5gePH"
-        "P2wDAYD2+S8FgNVqkIkJA4DWgQPfdPIAge+W03QIqgCZbwAQyTeJRqs1D5FX4P6r/qeffnlxrJ4AnB4dTXa9+mr896OPfnVL"
-        "CD+H6g/KSYL5VgvR3QBQAFBEAEDIDpSgGippCiPRivEv883mE5tOnLi8HAhZ7vJrjzzy4C2l0u/6k+S2qUaDEHEAKqvIhpwX"
-        "BylDpZI2zWbqZj/Z+Nxzf2zHXhZAG+UnDz+895ZS6Q8kpRFjFJGkTXFPKycGJGOimlTSFNebzUObT5w4xtHRRLpAyBcu37dv"
-        "VyVN/95yp5GuQOCiwKuXATvBnXQV8aG+vuR/jcYPv/L887/vlkMAgIBifBzX3ntvOFV9M1HdvBAjg4gSAFQBd8CsNwCqkBBA"
-        "z5OfgKeqVJHMzO4fPnnyXxwfV6nVXAFgoloVqdXc3X9ZCWHLfKtlQqqZwUlYvQ4zAysVcN26lXelAhdBnJ8HSbgZ4K6NLEMK"
-        "lJsx/pZdzEubjo/37t3RF8L5lpkRCDnjAm82Ee68Exv270eyadPKUhSlabOzmHr2WWQXL0IHBkD3XA7Ahvr6wkyWfe+2F154"
-        "6fToaJK0z0azJyshYMGM3QkSRTB88CD6br+9VyOEDg5iw6FD+Pixx8CFBSCETl60sowW41MAXhobG3MBgKsPPTRspdL7Cgwa"
-        "SQEEqmCWoTk4iLueeQZJufylEpEieH//fiQffAAplyHuYF5JTFRRJ7d+/cUXLykAtFR3VlQHsxiN7mLuMDOYO5qtFjzGPBHb"
-        "jtfDZnHWzEB3mDtoBne3darSZ/YgACRFvW6HO92dN9VyfqD38lvkBV58iLbjFMvMkMW4owMgxjhiqkJ3sMvfaQb2WnpLyeCe"
-        "f33BQpGo0soZuqObgeHMDLnpyQ0ABXVrWQJ0GJACSBtAljOyoQPAzcRF4Ga4CUAbea8WvAQDbga/mQEUd0k3gCnmv1h2tCoA"
-        "+BoZYMHAEgAIVbj7dAeAmV2REGDdehcScI0A0AZQ7K44FHdYjP/pABCzyRgjLEbRRRKY2ZokELKTxIUddwiQnO3J7ip4bdq9"
-        "ISJlIwkyN6LiclHND/ZKPwmogiJ5GRZSQAQkw1yrhQz4GwDoqWo1bHv99atm9ko/QOZmBMYIiKA5PY3W7OyN5OzhVywisGYT"
-        "C599BojAYkQR08oA6jG+ef/u3ZMkRas3UB+NZmLu0kkcEj43h3OHD2P22jU4Ca6yncTC9DTOHT6M5tWrkCSBxwjP5WRCipod"
-        "k1rNz4yNhU4/IID/Y9u2v65P0+98HqOpSAAJE8F/Z2YwNzSEsHFjb8k3M4PSp5/ia7feioRsU2/9IYQFs7eDyDf+fOGC1QAm"
-        "XWUj52P8aR24GICBaOYiogJg0+AgBup1NKanOyW2UodbSlOsW78eYgbP32cAGHOb/dGON97ITlWrARMTLt3Dx56JCXvtvvv2"
-        "DCXJn+bMoufM6E2td68tWVE5BAgybkjT9HqWPfnAW28d/UJLtrgjPnvvvU+sD+HonDucNCkalDWYkQkgQ0miU2bHdl66dGhx"
-        "Z7xsW37mnnv2lYDfpKoD85b7JkWC9Haxg/R+1cQBz9x/tvPy5V8ULHu3iisOJi+PjGwdSJLjfSJjDqCet1ax4zXF+XbDXjxD"
-        "WUT6RNAg/9kgD+5+552zp4CwB1h9MFlqNDt7993fF/KAAd+uqIIAjOxEUwBBBApgIXe8CxD59dvvvnvyx0C21EDS03A6DuiR"
-        "fAwjAJwZGdkK910U2e7ud7jIsORBpgT4SIHJVOT0A1eunO+SQwVY+w+lCBK4DNjlvuD06GjC1cc4/B/90CbqbyzspQAAAABJ"
-        "RU5ErkJggg=="
-    ),
-    "stopall": (
-        "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"
-    ),
-    "startq": (
-        "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"
-    ),
-    "stopq": (
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAGZUlEQVR42qVXX4hc5RX/nfPdO7M7O5Nd4zZb/4C4iIg12BhB"
-        "S0h3QyQPwZdiZ4nERnzRvkRBRR838+BTm4ChKpgSiym1zbwUCoVibWKEqoSwbTCWECUSNasSsok7Mzv33u+c04d77+ztZHcz"
-        "2g8+Ltx7v3N+53e+8/vOBwwwjtbrzup1hwGHzc7yoP/TmobMCPv2ETUaCgD29NMTEdFPzGwzgNvVbAMRGZldVuBCQDQnwD8r"
-        "Bw9eyIEAQL7+OwGwet1RsykAEO/d+6Ca7TVg51AYjoEZMEsnABCl0wzdOG6D6B2o/mb4lVfe7rc1EIBjU1PBtnff9Z89+eRN"
-        "E879Csy7h4IA7TiGVxUARgCMiACAzHpQHLOrhiHEDLH3f21H0bM/OHz47GogaDXnXz3xxEPryuXfDQfBLQvdroFIATBdJ21I"
-        "eVGY0Vi5zJHI1Y7IL288dOiPue1VAeQo5x9/fNe6cvkPZkZd7z0RBTnFA42UGJiZD5iDahjichQ9t+Hw4QM2NRVQAQRd43zP"
-        "nm3VMPxHrGpipkzkLI9rDWcrfjKDpjZ0rFQKLnW7v/jhm2/+vpgOAgADGLOz+OrTT8dD5tMB84Yl780xs4mkzp1DkQVihnm/"
-        "NivMIOegIho6Z0yUiMh940eO/MdmZ5kaDWUAaNbrRI2GqurLVecm2nEspMq+24UND8OqVagqNI7Tpyp8qwUtlWDVKmxk5NpZ"
-        "rUKZ4VstAOBukiAEhiLvf2sF5imn4+KuXfeXnDsZiwiYnbTbqD36KGo7dwJESC5exKWXXgLHMSSKUNmxA6MzM6AwXC7D4jY0"
-        "g3Y6uPLGG4g+/BBcqUBU5YZSyV1Nkp/d8tZbfz42NRVwvsaLPF9Kn6Yi6HqP4N57wbUauFpF+c47kYyNwbfbkEoF6x57DG79"
-        "+t53HhlZntUquFZDMDGB2u7diAGo9zBVxEli4v0LADA9Pa1MzaZ8+fDD41Dd+W23CxVxKoLYeyRLS2k0IlBVdOMY3nt0iWC5"
-        "EKkui1JxZu+VCF2zFICIW4wiOLMHzz3yyI96eyBm3lplriXei6mSqkJElqnNZv4+8R5WVMA1pprBew9VhaWByAgzlUQeAoAg"
-        "q9fNUDVVTRXODCYC69vhlhkxkQFOJFvWg9x59ikL4v4eAO/9pDCTqULNQGYpA30jZ0AGECTr1bhBsnWZnlBMBFO9rcjAeCKC"
-        "VPQIlDnrZyAvwYEYKK4TgRL1ACRpKtb3AKgIKRFUBESUKtgKTkwVKgLLN94gvUEGwIjSFGQbU0WoCGDB0iPWVLUHYKU9oN5D"
-        "VAcPP7MlywwYmKGqV3oAROQ8OdfLe54CrJAC+j4pyFOXQSJViPef9wCQyJz3HuI9cab31hclZVRyZuw7MZClLieAUrbnilXw"
-        "3hXVLhENiZkRQJKJT6E9S6sgU7T/6YjWcG5ZMJLphpm5VhwjAf4OAHy0XnebPvjgSxF5Zxgw814s22hBuVw42BiUlg98FC2f"
-        "AdfpC8g5+DjOtUWGAHS8P33f9u1zZkZcX45wvxchEUmVMElw6fTpNHdEuHrhAtrz86ByGdE33+DMoUNIoqhXrivNqNXCmddf"
-        "h3Y6MDOI9xaYEYscoEZDj09Pu14/QIC+v2nT30bDcMei95Kouq+9h7/5ZigReGEBN7ZaWFepIBbBxcVFyK23AgWWrslAu43y"
-        "/DxuGh2FA2TYObck8rEj+vFfTp2SRtZbpg0JYCc3brydg+DfZlZJAMSq3FpagpphuFTCSKmU/gjAA1jsdJCogrJ3/W1W6Bxq"
-        "lQqcmTlAAiKXAFsemJt7/2i97maaTaHi5WOm2ZT37rlnZiwI/tQS8QYwMbMVzvj+jmeATWgw8+vDMLycJM9v+eij/de0ZP0d"
-        "8Ym773521Ln9rfRsEAIcvscwQAigsSDgBZEDW8+cea6/M161LT9+1117ysBrIXOlLZluErkBHSvMdJg5UEAT1Re3nj3764xl"
-        "LWZszYvJ25OTGytBcLBENK0AOmm+fa+dy9bnrWr2dENEVEobkX91zZ7Zfu7ciaOAmwFkoJtR/3XqxB13/JzM9grw0yozDICY"
-        "9awxAEcEBrCUitcpEL368SefHHkKSFa6kAx0OZ0FeF9aKgYAxycnN0J1mxFtVtXblGicUiMLBHzBwFxIdGzL+fMnC+lgAhT/"
-        "zzDA2SpgV4vg2NRUYNe/xuG/GzKVOLBKjqAAAAAASUVORK5CYII="
-    ),
-    "delete": (
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAD+klEQVR42u1XPW8cVRQ9987H7mxsrYItgTBEwuWmCxIFBQXK"
-        "PyB2iYQUpUBKtJbSj7dKabZJkRaJIoYCkYLKXURLk22sSMhCGxs7GH/J8/XuoZjZXTsk9q4TGsiTppjd9+4977x7z3kD/N+H"
-        "XGQRAQH5QiSBAPzXETOO9SL/vVEGNhYWog+vXavvbWwAzSaaAP7Y38/fvX//8I0CYBwrer1yzuXLiuvXLX/8+BMNw+/MuWkz"
-        "k4p++kGQFWn6da3f/wmtlodezw2TrK66iQEQkJedadJux7Xp6eX04AC+5wEACjPUpqaQHh5+W19Z+XISBvwzkDG7c+fjIIqa"
-        "SZYRIj7MHETec2lqBCx3zqumO5emnpBTx+3251D1fLKAqrAojsNu95exGeDDh54sLrpkaemLWhh+D7NTle6cQ+4cRUQwYkhI"
-        "0lOVwPcx7BASCEOkx8dL9ZWVbwaxT+b7Z9U+eSLlWn4K30eS51laFEiKgkme05nBUxUVgYpI9cBTFZJI8pxJUbBak5W45bOT"
-        "sc8G0OuV8M1+LrLsUESUZAagAFAYkDvypY8B+WAeyVxExJxLYfYjAODqVU7UBTu3b38wU6u9kzvXmKSwcgBBEIBmieX5X1G3"
-        "+9vERcg49qXT+T1tt5ue5/1QOEcBQBFhdcZlGQA0g6gOz14BF6h6SZZ9FXW7v/LWrUAePMgnAgDAGMea7u5mVH2/5vtlxbFq"
-        "UBHArHyPIiDLgKotOSrCrNISe1WSV0vn8jKl07Fao7HjzJ4XJFMzS4+O6G7coN28yeTggNnsLHn3LvP5eaZHR8zMLDdjmiQm"
-        "wDPpdAytFicGMKAXT5/um8ieryogIaqic3OiV66Iqoo2m6IzM6KzsyJmQhHxVIXAUa3R+HOwmckZAEhSZHXVKbBd0V4GyvOS"
-        "8rJbymMoiuEqTwQisosw3Du1mQkBAIuLWrXKFlRPCRJOBn3hXVRB8rl0OhnP6bSzAbRaUvnCZpXgfL8XYXU32AIAxLGctW48"
-        "/yb7Q2k9fy6hCohsjpNjLAAEng2pHt/n++PMOxtAJctGblamNDYCG4B+LQCjsWXOAaQOj+KkS5qd3jxZgn5tAJWANES2M+dc"
-        "5XhErQY0GiNVVAVUwZIioXMIVDdPmduFAAwEpF7fBbknZYXTra3RPXpEqtL6fRZra3Tr65QwNAEkLQqac9snN3HRS6kAIBcW"
-        "vOO5ufUoCD5KioKSpqUqRhHoHJCmQBgCngdfFZlzh1EUzcu9e9skRQYCdoEaGKmhyEALDPU60GiUpqMKXLoEeB5IWnVR2RlH"
-        "Bc9zw4EnEABqwALIKbGXGFv1m1QJaZZKp5ONuvi/8GkWx7EuTxK40zG8HWOMvwEVfkMcu2R4iAAAAABJRU5ErkJggg=="
-    ),
-    "delc": (
-        "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"
-    ),
-    "options": (
-        "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"
-    ),
-    "scheduler": (
-        "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"
-    ),
-    "grabber": (
-        "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"
-        "gg=="
-    ),
-    "browser": (
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAJ70lEQVR42o2XfZCX1XXHP+fe5/e+v/3tLvsCggu7YFEoJmKM"
-        "L01YoaRphSStk6UarZlp2trYGI2hNdNMZrM6JnUitJJq1TrT1iihu20mbU2TKroKNmHKCMiriAICyvu+/vb39tx7T//YBSGG"
-        "DPfP53nuOZ977jnP9xy4iNXd12e7+9RykatH1Vzs99GvfasqPd9GeleIB/jSWm1z6q4nhKtD0A6gFREVkUENeshEdmtw9ue9"
-        "IocAenrUAPT2SriQC7nwqdX2Tzq+7Z9q14nlblRvSqSSDWJBA6hOGhEQM/HMVeJxFV4C+ftn70i8+Mu2Lgqgq2cgerV3sfuD"
-        "1SemZRoavidGbouSEXE5Rn3sEVREkMn9CqqqqCJirU2kU2iA4OL/rpXL9/XfVdh7IQi5kPObHx9emkpl/zlKJaZXi+OKEozB"
-        "iIi4AM6DnwysMZCwEJkJmBA0AJLM5ox38YivVP+87678ujO2LwhwhvLz3x++xaaza1HEx1UnIpExQqmmOK8UMkJbvVCfnthX"
-        "rMGJUWVoXDFGyCYFUEJQZ2wURek0lbHi1390d351V49Gr/aK+xBAd7fa/n7xNz86tNimsy8H5zR4H6w11nulXFPmXSIsnZ9k"
-        "4ayI1rxBzsE/XQxsP+xZv7vGtkOehDUkI8GFEIwxIZHJRZXR0T/68b2FZ8+9DpmsG9MDbG8rNuPNdjG21ccVtcaYqoOUDfzx"
-        "ohTLPpo+Ux6EAOteeodyzfOFpbPJpD4oqA17qzw1UGVwHLIpwXkNxiZUROIQxwt//LX6PT09anp7JRiA7t1Ib68EV4oftYls"
-        "m6uUvagx5WqgIeV5+A9zLPtomm37TvGtp1+nFivPrT/Ag+sO8siPjrDm3/cC8NAz2xjY8j6L5qZYfWuOmY1KsRQwiHHVKphk"
-        "2jv/NKpnY2e7+9T294r/7MPDHzPJ9Jq4XPIokfeKxfPdW+qYMzXBcy/u557HdnDDgmn81vwmvvXMQfItHbS2TmPX/kFuvqGZ"
-        "4RLc89h2RB1Lrmrh2tkRr+ysUKwIkRETVys+kW2cOWfj2LZ//GZ6T1fPQGTOkDgNK5EUwXtFYawUc+dvp5gzNcEP/mc/D/cf"
-        "YcrUTlYs6WDb28OcLGVIJrNgUpQ1zyvbB1l+/XQ6Z1/GEz87zap1e2ipj7jvpiy1WkwIEAL4OFbv3F8B3MiNwfSvEL+8Z7TZ"
-        "B26qlcYgqB0rOeZPU5YtzLFz/xCP/ddRWqbNZtqUOmY0RWzaW0RNZsKgV6JElv97a5xMEma21dE2fTZrNwzz8pZjXDMnzQ1z"
-        "hJFijCi2VhoDtdd9+oGj88/mQNXUPmkT9XkX17yqSKXi+N3JhHvy+cOQbsWTYlpBEIF978dYm8R7JbhAZBMcPOFRhY4WQy22"
-        "5Bou4amfvIeq8rlrsgTnJqOg3iTrBRJLAQxACHq1qlUNaC0O5JOOrvlZTgyV2XEo0NjQQFxztBUmcufUaCAZWSQoqJKwhuEi"
-        "iASmNRhc7Kivq+fd0xG7DoxwVWeGtnygXPFoULzzuBA+dhZAfej0zgkByhVPSz5QyFl+vmuYQ4MRoyXh2GCVfArQwMFjMUNF"
-        "5dRIzMkRx1AxcPikY2Tc0ZAznBiqMlwMHB9N8cobI1gDMxqhUvVoQHwcE5zOPKuGQaXZO0cIKrXY05SdSMwrZtbz6J05CvkM"
-        "lWqOudMtiPDgF9sJksSYCUESwLkc6aTlE/PyPHFXhnQqYnQ8zfSGCcVqyUOt5ghJI0hMCNJ0FsB7L+IDGibuVHRCM+ZemmPu"
-        "pXBqaBxUqctFgLCg3aAan/cfV4SENRRysHCWR9XT0pQ9E2REA8HphA+vaAhyDgBDJhiCVxWUU8M1VJVKzTNSjPn9+1/j8IkS"
-        "37j9cu5ecQWfWbmBoXElmTDohBSiIeZ/n/wdBrYc56t/u4X6bIK+hz5BxyU5MqmIk8NV0AQ+qGIM3uvwBzkQ/IEQBBcHImM4"
-        "fKLKaMlRqjiaCxGfWzKfOGpnuJyYCGfbDJL1HWQaOsg0dpCs76CpuZ1CPslQUajZGSy5fh5z2+sYHK0SVHn7SJnIGlysqsHi"
-        "XTh8ThXYrcF5vA9ijeHEUOAXOwapzyXZuPUk9986g8tnNbLzYAzA1OY82Bw2WU+UyIOtY0pjHhD2HKrR1JDnoT/tYPOukxRy"
-        "SXa+M8KBozFJa3HOE1TQYLaeBZBSvLFWGqmoGhtcUBNlWPfiURKRwQV4fsO7/OShTtoKhkrVMXtqktFiTPAB75XRYsyM5ggf"
-        "At57fvY3s3njzWMcOl6hLptg7QvvUQspVCF4tXG5SKy19QCmu1vtpifb3wvevSQ2p7U4+Hwuw8adJV7Y9D6fuvYStuwd4Znn"
-        "97Lm3rmkUxHXzcsxtSDENU8cexoySteVOawxrPrKb7Bp2xH+7aUjdC+dxRtvDfIfrw1RqMsRx96LzeBr5e1bGtu3oirRB1og"
-        "q3BuWfBBUEM628Q3n3iT3+ws8O0/u5KVf7eV5fe+zDe+OI9FV01l/ffqCGpQwKDUZYQd+wZ58Okd5OsyfP8vr6ZUiVm5ZgfB"
-        "NoFYvAsqUVJ8qKymV0IXGtndu3uVHjXHHykcaLnyyzfYZOEyVyv5RCJphsccGzbv51PXtnLzknaCCj/86X4+s+hSBja/z5of"
-        "7mb9pvcYG69y5WWNPPDUdj5yeQvf/cpHiJ3nSw9s4o13kzQ0NOO8ehPlIlcZ2R3R/hdHl8O7vYuDOaeSRRPmy65aKqomJK6F"
-        "kK+fwltHM3z23g28+Isj3P57s3juO4tIRIZr5reQTqVxIeKTC9swRnj8r6/ja1+Yy+adJ1j+1QFe2wWNja3UYtUQjPrYaQj8"
-        "yetPSdy9e74A+qGW7Io79q2I0k3/6mtjDg3GGjXF0dNUi8f49McL3L6sg48vaKMumzyvma1UHdvePMXan+7nPzeeQhMtFJpa"
-        "8cEoiIsyUxKufHLl7n+ZveqMrw81pV1dA9Grry52l9+27z6bbloV4jE0OG+M2ODKDJ4+DvEIM1stsy/N0dqUQQROD1d458g4"
-        "B446vMnTOKWNRDKHVzyIRKkmE1dOrd777Jyvn/Fx4bZ88oPLbt13h7HpfxCbzIZ41INgjdrgapRLRSqVEs7FgGJtgnQmSyZT"
-        "h02k8EECEEyUjVRDwNfu37u285Hu7j7b378iTIwSv24wmYTo7N6zwCZya8SmbkQ9wY0D4gQQoyJnejsRnVRmRbEmyoqYBN6V"
-        "t4mv3LOvb+4Guvss/Sv8xY9m59zTnFve+byqvRsNi0wij2oAnRCcCf8WxCJiCK4EhNdFePztfS/8gNfvjH857BcFcKZdpxcF"
-        "UYDO7kMLQnCLBb06aJgpGppBQGQIOIKxW8VEAwf62jefb+PCw+nFrW6151bM+fy/+gxdXQPRr95z/vp/zj9JD0F9FlwAAAAA"
-        "SUVORK5CYII="
-    ),
-    "t_all": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAADIklEQVR42k2TTYjVZRjFz/O+/4/7MZPz5VCaH+k4UQuxsrDJ"
-        "CAraGEGLaRshYVCBq2j350IQwQRGSBBCtIiYhlBbhKtECAs0oiCLHG/kOJGDjjP33v/X+7zv87QYpvytzuKczTkcwiaqBCIF"
-        "gNkvtdkOOCgcpgyBNLLdwuLywss0AIAsU9PpkAAA3R1+Jjsfbd/11HEyeI2A6SiOAQDBM1TRFeDTWJfnPnv1gQqZGnRIaFPM"
-        "ftjbalvpV3EredpXAXVVgYMKAMSWTJqmiJoRXFH/CJe/NP/G+FKWqaEsU3MFv0Z+fNf5dHhopu73HQdE20dgXn+2CUPAqQsV"
-        "uiuiSUyctoeTush/4aT95GN/ozKdDkk9vONN2xiaGdxec+I1KctgJhoOB3ZG2L8jwn1th6ISkqDJ4M6as2l7vxn03ul0SMwL"
-        "2XKLnX+r7JUSWCPhAA0KZoEoIAo4J4BXKAcEr1Gxngu7cOzIe2ujUY34IIndzXmuREQDp+iXinxrgNmoGEUZcHtd4ZnQSMio"
-        "Fmrj1qRndzhij32RjeDZCSD2iakGylrw0Dbz38LT22L0asI9TYvLizWCQmCMYccPRsELKYmqV+QVYzIp8PYru3E3R58fw1EA"
-        "J09fx7d9i1YjgieBOCFTO77mqopc7U3DRvjkXIET838AAHxQ+KAAgFNfX8OJMz0kNoKrArnKEXtZNM06ueTK6kaQROuKZWJ0"
-        "DB+dLfH5uT8RWUJkCWcvLOH9+R7GRibgatYghuoiX618/p3969Kcm3z0eMvEI89xnbMEsY1GG99cXMEjewi37pQ49sEy2lvu"
-        "hYYAH8TbeNz6Oj/588d7zxAyNYeuLKWDIblo05EDvlp1xlDMgSjVWzCkKHQCSQQVAdt0SyLcv1r0/ePdh/f0DQD8sLCzLAt+"
-        "sS76P6kdT5gtUfBahtEw4LFgJCizIbWjiSvz30PJR7oLe9cBwKBDgiwz1+b3La2v3jzsitV3meUG+4RUmxbUtBwS8qz/uGJ9"
-        "zpU3D/32xdTV/8+0SZYZdDoCAPfPXh+LRWZEedoApJQsGuHvu6enVja8G2EA+BcuNdVpchzQYQAAAABJRU5ErkJggg=="
-    ),
-    "t_folder": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABbElEQVR42qWTvU4bURCFv5m73t3wI6H0CBQKWnoKLEhegSoN"
-        "oqPIKzg8QF4hL0CDUoKETOqUCCUSKEqJFEUBO1nW3juTwoDxImIjTjl3dHR+5sIzIQDuLX3wsncqsrkXJyJ4DN5C2801pT06"
-        "bzbhffvYdncxASgOXm/ls8nbohNNFbJUtSjt29Sbw51xChKAsiy285xV61eICr0Ise/r5x+XznpV71cQl+jiACr4dAo/L3uf"
-        "V95dfE8Afne73Xx+OXoSY4WHgTnh1fziB7Tm0hxmG9iXkyO42EgAQiPVbO5lSEIfgXC7W0EUwUcIAjFIGpI0m7mzAA5VhVlV"
-        "TzV4PViQEDXgxHsEA8ljSqmXJwD63ENKbggNdwM39zEyBruCYEMCZ5qpTBt90Qep12GmvMjAfBhi+afz6errycJ14Y77/22J"
-        "WJ6rln87+yOn3IJ8cWFy71s/uL73mRAR8aeE5+4igstwMHGHt607wD/kuopaCvZpAQAAAABJRU5ErkJggg=="
-    ),
-    "t_unfinished": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAC9klEQVR42l2Ty2udVRTFf/t8537ffeRxNcZGTUttYxQHtkIc"
-        "mFbRiSKl0v4DovgAoaBDRegl4ETQuSLWBzoQ7UCEdiIUQSpiBZFUCmlTNE1NG9ukubm5937nnL0dNCnFNdqTvdhrr7WETZgh"
-        "IhiAnR6vobWpFNIE4iTLbJ5YnJGn/1wHsBZOZlAAuX35VAu/78ndb4q4VzEmfUUASMEwkXmz+Oni3+n9+1/6q7dFIlvD2omx"
-        "0cJVj+cDPJFWVukFABQDBFdUwDebhA1+ixvl4frhywvWwokZ7uw3D/udeftUY5DpdmeoLHYc8BqDE5FNeYZkhZWLJ8NgcS3f"
-        "6Lg/6i48zsF/el4EvfHt6pFGw0+3V7Tsdq/kvWI/o3sOcjuuzf8ocfaznKovB5vyyNqKe2tYOCqLH91Trw3I2VrBjm4QnAW3"
-        "dD2y7dAPNO/bA6a0ly+wePwpxoYiZIXm3igD/4r5h1ylsKnMdGeno2IhOU0V7qonFk++TAgBxbNw4hVG8g5QoCG5bkclF7tb"
-        "U3+/J8UHvM8oo6lBBorLGgyvz3Lx+9cRX2dg7Rf88CixH7YsV1cRF0p90GtE1KlpsE1TQZOSC2S+CxlkYoRSwXSLgBQEooq3"
-        "nl3oqUpKOAGQDIttaOxi7LmPEV9l6YvfsdVzSD4AmjCQUIrEYOedy9yv/Z5eyjFL0VTLPrEfaD7zCWR1zIQ7nj1GjBmp1yVF"
-        "LFOVTidd72j5k9t2ZHk9Bf2w4c1psJh6fUYOfE5t+z7EOcRlFGN7GT30NRqUVKY4lCMp6rHJN9aXxVq4hSEKKwdPN6tp73Jo"
-        "lr3dL1RiDCLiNjUr3hdWvfhVGHFX83ZZmQtkj+3qrrRvRXnuner2eiP7rlGxRy8vb9CPmHCzMAYuz5B7R2t0kzu3EcLzE0fL"
-        "OWtt/q3Vws3MoGdeoz46XnvbO/+iCOP+5gFEBTWWTPXLK53Ou1PvceNWmbaiukUCMNsaunOA3nSITDpBvHA+bFR+nvigc/X/"
-        "df4PznCTYY1+rJoAAAAASUVORK5CYII="
-    ),
-    "t_finished": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAADPElEQVR42l2TTWhcZRSG3/N99yd30vw2aSVETdM0DVoktrHS"
-        "mFJECAjF0kpBFOOqQqGUuJEWK5dxa3AhCq783QhRrEs1UgYh3TRdhBpKkwbR2iZpMpPxzp079/s7LpIU8cALZ3POeXg5L2Gn"
-        "mAlEDABn/3wnqnP7iNN2gIlIBt5yrWpulA4VawCAOBYoFh0A0H+HT1yLvbDHTILoHBiDIpAgEJw2YMIyO/5C3b83VXrxq8bO"
-        "Etppxm5e7g59/t5vazpuajlcbsDMbguPhAw9hK0RGtVsTtXz078d/egvcCwo5lhMTy94XU/2Xgs6CqOqnCoQeQDENh8IBDBz"
-        "YjLdvrsjsEk+X6OWYyePoCGKVHSdPY9dkC3BaH2lqqyxgdVGWG1g1ZaM0shzRae7RgO9lipXkM9EjfKlIhUdHbnxdsGvyt8p"
-        "lE+43ECSEA78yFuPJNbzKi7ufxXnB05hduOWm7z1CaST657PQ0KsmBFrbZ9OGgTDIslSmO3LpBmryQbO7B3D+f2nAACzizdF"
-        "vZISCHsadTsmtLUHHBjOWLeRVPB0cx+cMnDaYiPdxPNtQ7hy6C2AgC/nruLj298h9ANnjGGTq4PCGkOsLSdpijf2jePr41cw"
-        "efAs7lVW0evvxtTIBUReiJk71/HB3OfobOuAaWgYpWGVJs9l+q5xRDrLRVQj+MLDm4MvI9cKw10HsLfQiYUHS7j464cI2yPY"
-        "3MCxJQFHUHZJdr/21LpOzUTYFLb8fGeWOTU01n8Yh/cMoWdXNx4mZbw+fQnlIENIPozWDCIyua5ohXflw+kF1X5yoECh91Ik"
-        "Qv3T4qwMcoFj/cNQWmPi28uYz/5Aa9gMpQ2cdUYUfOnq+adL5364Sohj0du6EPpN2awo+MMuMyopV/0zfSdoPdtEqTyPjtZ2"
-        "GGsYgBYFP3ANuyj+yZ5bzl5ICDEEinA9U+OPy0D+KCP/WTQsKpsV9jzpWqJdsNYJ8gRR5MHl5raz+pW/J2cWEUNIlMCIIZL3"
-        "7labj7Z9wxywtba/0BS1+UEgLDvBzOSsXWFlP0sf2Im192fub2Wo5OjRy22TAEBvPN6pC3aUrB0Eg8iXSy4V11eLv6z9P87/"
-        "AkRrwk7jiuQVAAAAAElFTkSuQmCC"
-    ),
-    "t_grabber": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACvUlEQVR42qWTT0jUURDHv/Pe29+ureuKm2bGSmFFB1Po0KEC"
-        "Aysk7K8JQVFBVERFZB3qEIsdoi5BRYe6dIkig8ro/9+tIOpkkJShUbFF6brquuu6u773psPa9s9bc5yZ7wdm5jvAfwZNlGRm"
-        "IiI+f/5aMbvkcm2tgjWAyNUd5bYZtnd3bFjZryYChMNhCUDLArWzYVn9UaMzIBLjcAtPgRd37j46BuDQn4DmNlnXV0rhaKlA"
-        "HSsl73vBWkciX7Vl/tmrZ1bNUI7b8QDAL0CIBVrJPAXw4hkABrwtNxPGkiopLoLl8V4CAFJsrfkFyInt7K29CwdHPVtAZvpw"
-        "gjvf9HaXL6Q0ooPDBLZ5vd9fDBBRDtDMEq1kqjZ/366p8GzjgkmYWQG8i2DJuRdzEAyOor7aJ+MphhQ5nZQCbHNAhStkanYP"
-        "zhhK8JmWVS7evBQ6MwbhuMCnrzsidCktKrYlTMAHHjMAEemSQABCCMqP8K0v2zivukw1LbI6GmeXtoBLApuWenD1+SgiqUq5"
-        "eL7AQJIgyCq3uwDZbFbnAYa52F8IK4SAtgwlAG0AR1lbXlokLtzuap+U7AkPp6RwFBnHcdn4SPJqHuD3qpfvPhkRibKumqo4"
-        "nmIKFJF9/YHtp29p+z5avfdx09zPE3lGIMTi+PLA44FY7MHhi8p5/maMYnHDDzuMaL3IaiSeSFehZ93G/fe8BCDU1unsOXnb"
-        "zcy5g4KZQEBDKObr/ChPCaKmIi8VDiX1EOvMfZlKrhVOmTLZWAezPfKlfdb1CX6BCSAGgNp9/dMGR3xTpnqyX1+d8vUGV3Tt"
-        "hHQdlO7JlayTYD1yw5r0iS83a54CTL89ExNCILSS/cudtmL124Bi9wEm3iVdfh9IwGSi6yPtcy7/u5UQCzSzxPiMqHuSt/u0"
-        "Ne9rgyu7b1WujXwPNnYtAoAfgZI8aInDPDkAAAAASUVORK5CYII="
-    ),
-    "t_queue": (
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACIUlEQVR42p2TPWgUURSFv/tmJjOb3UwSRQ1BhChCwGChxYKF"
-        "ESSSTiEgYmsrlrb+FQmJWAiWCdpbRSVgsPCHgAoWEhvBCIqiG4mJuruz8/OuxYYxZrTQ17zXnO+de7gHAFDhn09b47YfosMX"
-        "NHA601G1NmwmCSVjihqvQ1W0ES+v3l+Yku+oiqAqh85/qUhYmVc/qMYxVAJoxGDt5k/B90Fa0WKrHh95Ph6uuIioe7k+kgVB"
-        "daDcjLeFxiy8zti/y1AJBFUQIb8/rNjss1Ma6tDsOCIzLoDvmbDWwJ4e8czwoOOOTkZcGfPp6ylGM/si4dIctseVcD0DaKaa"
-        "dZcwE3dje21OiDMYux7hOsUYWqkSVjwTNclygCdIPYWjex12bzfMPEo5WXXpLf8awSoYgZfvMxbetTU5wDiQJLBvp6G6x+Hm"
-        "45TDgw79PUWAojx8C/66IxcgSiAswdS9BCTFd+HUjQjzh+0QlL4dHtGPDYDAg68RnDvmcWDA4eytFtNn2iFudvDgVcr0Uyg7"
-        "GwA2A0fg05qyVLNkFt7UlLUmBcDHVcURUDGaA2JFyiXs7WcJqRW6AuHqXIxqcQTXwJat2KhuTQ4QSwPBlH1JxEBmld7yXxqg"
-        "pAiBiGm0AariXGQ+qUeLHV2dQzZtW5XiFoOCcXCTeryUmXQ27wIienBCuzttdkI1Ca21qP2dIQY1GIzr1e232p0n4/3LaN7i"
-        "/6jzuvgn6Db1/EKzIN8AAAAASUVORK5CYII="
+    64: (
+        "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"
+        "HUHcIWeSAAAAAElFTkSuQmCC"
     ),
 }
-# --- end ui icons ---
+# --- end brand marks ---
+# --- ui icons (regenerate with tools/make_icons.py) ---
 ACTIVE = ("Connecting", "Downloading")
 
 
@@ -685,22 +386,6 @@ def clean_name(s):
     if _WIN_RESERVED.match(stem):
         stem = "_" + stem
     return (stem + ext) or "download"
-
-
-# ============================ speed graph helpers ============================
-def nice_max(v):
-    """Round a peak speed up to a tidy axis maximum (e.g. 300 KB -> 400 KB) so grid lines read cleanly."""
-    if v <= 0:
-        return 1024.0
-    unit = 1
-    while v / unit >= 1000 and unit < 1024 ** 4:
-        unit *= 1024
-    x = v / unit
-    e = 10 ** math.floor(math.log10(x))
-    for m in (1, 2, 4, 8, 10):
-        if x <= m * e:
-            return max(m * e * unit, 1024.0)
-    return max(10 * e * unit, 1024.0)
 
 
 # ============================ checksums ============================
@@ -758,89 +443,6 @@ def hash_file(path, algo="sha256", stop=None, progress=None):
 
 
 # ============================ appearance: dark mode + accent colours ============================
-DEFAULT_ACCENT = "#2563eb"
-ACCENTS = (("Blue", "#2563eb"), ("Teal", "#0d9488"), ("Green", "#16a34a"), ("Orange", "#ea580c"), ("Red", "#dc2626"),
-           ("Purple", "#7c3aed"), ("Pink", "#db2777"))
-
-
-def valid_hex(c):
-    c = (c or "").strip()
-    return c.lower() if re.fullmatch(r"#[0-9a-fA-F]{6}", c) else ""
-
-
-def _rgb(c):
-    return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
-
-
-def mix(a, b, t):
-    """Colour a moved a fraction t of the way towards colour b ('#rrggbb')."""
-    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(_rgb(a), _rgb(b)))
-
-
-def luminance(c):
-    def lin(v):
-        v /= 255.0
-        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
-    r, g, b = (lin(x) for x in _rgb(c))
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def contrast_fg(bg):
-    """Black or white, whichever is easier to read on `bg`."""
-    return "#000000" if luminance(bg) > 0.179 else "#ffffff"
-
-
-# Skins: whole colour schemes. name -> (base mode, palette overrides, accent used while the accent is still the default one).
-SKINS = {
-    "midnight": ("dark", dict(bg="#0d1117", panel="#161b22", field="#010409", fg="#c9d1d9", muted="#8b949e", border="#30363d", grid="#21262d", button="#21262d",
-                              button_active="#30363d", graph_bg="#010409", map_bg="#161b22", seg_empty="#21262d", seg_border="#484f58"), "#58a6ff"),
-    "nord": ("dark", dict(bg="#2e3440", panel="#3b4252", field="#252a33", fg="#eceff4", muted="#a3adbf", border="#4c566a", grid="#434c5e", button="#434c5e",
-                          button_active="#4c566a", graph_bg="#252a33", map_bg="#3b4252", seg_empty="#434c5e", seg_border="#6b7690"), "#88c0d0"),
-    "solarized dark": ("dark", dict(bg="#002b36", panel="#073642", field="#00212b", fg="#93a1a1", muted="#657b83", border="#18505c", grid="#0a3d4a", button="#0a3d4a",
-                                    button_active="#14505e", graph_bg="#00212b", map_bg="#073642", seg_empty="#0a3d4a", seg_border="#586e75"), "#268bd2"),
-    "solarized light": ("light", dict(bg="#fdf6e3", panel="#eee8d5", field="#fffdf5", fg="#586e75", muted="#93a1a1", border="#d8d0b8", grid="#eee8d5", button="#eee8d5",
-                                      button_active="#e3dcc2", graph_bg="#fffdf5", map_bg="#f5eed8", seg_empty="#eee8d5", seg_border="#93a1a1"), "#268bd2"),
-    "forest": ("light", dict(bg="#eef3ec", panel="#dde7d9", field="#fbfdfa", fg="#1f2d22", muted="#5f7466", border="#b9c9b2", grid="#dde7d9", button="#dde7d9",
-                             button_active="#cbdbc5", graph_bg="#fbfdfa", map_bg="#e6eee2", seg_empty="#dde7d9", seg_border="#8aa08f"), "#2f7d4f"),
-    "high contrast": ("dark", dict(bg="#000000", panel="#0a0a0a", field="#000000", fg="#ffffff", muted="#d0d0d0", border="#ffffff", grid="#555555", button="#1a1a1a",
-                                   button_active="#333333", graph_bg="#000000", map_bg="#0a0a0a", seg_empty="#333333", seg_border="#ffffff"), "#ffd400"),
-}
-
-
-def skin_names():
-    return ["default"] + list(SKINS)
-
-
-def make_palette(mode="light", accent=DEFAULT_ACCENT, skin="default"):
-    """Every colour the window and the graphs use, for 'light' or 'dark' and an accent colour. A skin (see SKINS) replaces the whole scheme:
-    it decides the mode itself, and supplies its own accent unless the user picked one."""
-    accent = valid_hex(accent) or DEFAULT_ACCENT
-    sk = SKINS.get(str(skin).lower())
-    if sk:
-        mode = sk[0]
-        accent = sk[2] if accent == DEFAULT_ACCENT else accent
-    if mode == "dark":
-        p = dict(bg="#1e1f22", panel="#2b2d31", field="#17181a", fg="#e6e6e6", muted="#9aa0a6", border="#3c3f45", grid="#34373c",
-                 button="#3a3d43", button_active="#4a4d54", graph_bg="#17181a", map_bg="#2b2d31", seg_empty="#34373c", seg_border="#5a5e66")
-    else:
-        mode = "light"
-        p = dict(bg="#f0f0f0", panel="#e5e7eb", field="#ffffff", fg="#111827", muted="#6b7280", border="#c7cbd1", grid="#e5e7eb",
-                 button="#e5e7eb", button_active="#d5d8de", graph_bg="white", map_bg="#f3f4f6", seg_empty="#e5e7eb", seg_border="#9ca3af")
-    if sk:
-        p.update(sk[1])
-    soft = mix(accent, p["graph_bg"], 0.65) if mode == "dark" else ("#bfdbfe" if accent == DEFAULT_ACCENT else mix(accent, "#ffffff", 0.75))
-    p.update(mode=mode, accent=accent, accent_fg=contrast_fg(accent), accent_soft=soft)
-    return p
-
-
-PAL = make_palette("light")  # the colours draw_graph / draw_segmap read; the window replaces them with set_palette()
-
-
-def set_palette(p):
-    PAL.clear()
-    PAL.update(p)
-
-
 def system_is_dark():
     """Does the operating system currently prefer dark apps? (False when it can't tell.)"""
     try:
@@ -870,19 +472,8 @@ def resolve_mode(setting):
 
 
 def set_dark_titlebar(win, dark):
-    """Windows 10/11: make the window's title bar match the theme."""
-    if platform.system() != "Windows":
-        return
-    try:
-        import ctypes
-        win.update_idletasks()
-        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
-        v = ctypes.c_int(1 if dark else 0)
-        for attr in (20, 19):
-            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v)) == 0:
-                break
-    except Exception:
-        pass
+    """Kept for callers/tests: the title bar follows the live palette (see aerograb_theme.style_titlebar)."""
+    style_titlebar(win, PAL)
 
 
 # ============================ sound alerts ============================
@@ -984,38 +575,6 @@ class SoundPlayer:
         self.last = now
         self.play(pick)
         return pick
-
-
-def graph_stats(samples, window=60):
-    data = list(samples)[-window:]
-    return (data[-1] if data else 0.0, max(data, default=0.0), sum(data) / len(data) if data else 0.0)
-
-
-def draw_graph(cv, samples, window=60):
-    """Filled line chart of the last `window` seconds, newest at the right edge. `cv` is a tk Canvas."""
-    cv.delete("all")
-    W, H = max(cv.winfo_width(), 200), max(cv.winfo_height(), 60)
-    L, R, T, B = 66, 10, 8, 18
-    pw, ph = W - L - R, H - T - B
-    data = list(samples)[-window:]
-    ymax = nice_max(max(data, default=0.0) * 1.15)
-    grey, font = PAL["muted"], ("TkDefaultFont", 8)
-    for i in range(5):
-        y = T + ph * i / 4
-        cv.create_line(L, y, W - R, y, fill=PAL["grid"])
-        cv.create_text(L - 6, y, text=human(ymax * (4 - i) / 4) + "/s", anchor="e", fill=grey, font=font)
-    for frac, label, anchor in ((0, f"{window}s ago", "w"), (0.5, f"{window // 2}s", "center"), (1, "now", "e")):
-        cv.create_text(L + pw * frac, H - 8, text=label, anchor=anchor, fill=grey, font=font)
-    if not data:
-        return
-    pts = [(L + pw * (window - len(data) + i) / (window - 1), T + ph * (1 - min(v / ymax, 1.0)))
-           for i, v in enumerate(data)]
-    poly = [(pts[0][0], T + ph)] + pts + [(pts[-1][0], T + ph)]
-    cv.create_polygon([c for p in poly for c in p], fill=PAL["accent_soft"], outline="")
-    if len(pts) > 1:
-        cv.create_line([c for p in pts for c in p], fill=PAL["accent"], width=2)
-    x, y = pts[-1]
-    cv.create_oval(x - 3, y - 3, x + 3, y + 3, fill=PAL["accent"], outline=PAL["graph_bg"])
 
 
 def draw_segmap(cv, cells):
@@ -1159,8 +718,8 @@ def queue_positions(items):
     return out
 
 
-COLUMNS = (("name", "File Name", 250), ("q", "Q", 36), ("size", "Size", 75), ("status", "Status", 112),
-           ("left", "Time left", 82), ("rate", "Transfer rate", 118), ("last", "Last Try", 168), ("desc", "Description", 150))
+COLUMNS = (("name", "File Name", 230), ("q", "Q", 34), ("size", "Size", 70), ("status", "Status", 108),
+           ("left", "Time left", 96), ("rate", "Transfer rate", 120), ("last", "Last Try", 162), ("desc", "Description", 80))
 
 
 def sort_key(d, col, qpos):
@@ -3000,24 +2559,6 @@ def toolbar_layout(saved, default, known):
     return out or list(default)
 
 
-# small vector glyphs for the buttons the classic icon set has no picture for: id -> [(x0, y0, x1, y1, colour)] on a 32x32 grid
-def _disc(cx, cy, r, colour):
-    return [(round(cx - (r * r - (y - cy) ** 2) ** 0.5), y, round(cx + (r * r - (y - cy) ** 2) ** 0.5), y, colour) for y in range(cy - r, cy + r + 1)]
-
-
-def _shield():
-    rows = []
-    for y in range(4, 29):
-        half = 11 if y <= 16 else max(1, round(11 - (y - 16) * 0.9))
-        rows.append((16 - half, y, 16 + half, y, "#16a34a"))
-    return rows + [(x, y, x + 2, y + 2, "#ffffff") for x, y in ((9, 14), (11, 16), (13, 18), (15, 16), (17, 14), (19, 12), (21, 10))]
-
-
-GLYPHS = {
-    "clip": [(7, 6, 25, 29, "#4b5563"), (9, 10, 23, 27, "#ffffff"), (12, 3, 20, 9, "#2563eb"), (11, 14, 21, 16, "#9ca3af"), (11, 19, 21, 21, "#9ca3af"), (11, 24, 18, 26, "#9ca3af")],
-    "scan": _shield(),
-    "widget": _disc(16, 16, 13, "#2563eb") + _disc(16, 16, 9, "#ffffff") + [(15, 9, 17, 18, "#2563eb"), (11, 16, 21, 17, "#2563eb"), (12, 17, 20, 18, "#2563eb"), (13, 18, 19, 19, "#2563eb"), (14, 19, 18, 20, "#2563eb"), (15, 20, 17, 21, "#2563eb")],
-}
 
 
 
@@ -3033,7 +2574,6 @@ class Download:
         self.speed, self._last = 0.0, (time.time(), 0)
         self.lock = threading.Lock()
         self.limit_kb, self.limiter = 0, Limiter()
-        self.hist = deque(maxlen=HIST)  # one speed sample per second, for the graph
         self.base, self.category, self.auto_cat, self.router = folder, "General", True, None  # router: set by the Manager
         self.queue, self.project, self.desc, self.last_try = MAIN_QUEUE, "", "", time.time()
         self.force = self.auto_paused = False  # runtime only
@@ -3458,7 +2998,6 @@ class Download:
         if now - t0 >= 1:
             self.speed = max(0, (d - d0) / (now - t0))
             self._last = (now, d)
-            self.hist.append(self.speed)
 
     @property
     def label(self):
@@ -4392,7 +3931,7 @@ DEFAULT_SETTINGS = {"limit_kb": 0, "sched_on": False, "start": "01:00", "stop": 
                     "show_complete_dialog": True, "confirm_captured": True,
                     "proxy_mode": "system", "proxy_type": "http", "proxy_host": "", "proxy_port": 0, "proxy_user": "", "proxy_pass": "",
                     "proxy_bypass": "", "site_logins": [], "auto_retry": True, "retry_max": 5,
-                    "theme": "system", "accent": DEFAULT_ACCENT, "skin": "default",
+                    "theme": "dark", "accent": DEFAULT_ACCENT, "skin": "default",
                     "av_scan": True, "av_engine": "auto", "smart_unwrap": True,
                     "clip_watch": False, "widget_on": False, "widget_x": None, "widget_y": None, "widget_alpha": 90,
                     "toolbar_items": None, "toolbar_style": "both", "toolbar_size": "large",
@@ -4415,7 +3954,6 @@ class Manager:
         self.scanner_on = False  # the window switches this on; the CLI and the tests scan only when asked
         self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self._busy, self._base = False, 0
-        self.hist, self._hist_t = deque(maxlen=HIST), 0.0  # total speed, one sample per second
         if persist:
             self.load_settings()
             self.load()
@@ -4721,9 +4259,6 @@ class Manager:
                 active += 1
         for d in self.items:
             d.update_speed()
-        if time.time() - self._hist_t >= 1:
-            self._hist_t = time.time()
-            self.hist.append(sum(d.speed for d in self.items))
         pending = any(d.status in ACTIVE or d.status == "Queued" or (d.auto_paused and d.status == "Paused")
                       for d in self.items)
         done = sum(d.status == "Completed" for d in self.items)
@@ -5626,7 +5161,7 @@ class Tray:
             pystray.MenuItem("Speed limit", limits),
             pystray.MenuItem("Open download folder", cmd("folder")),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit AeroGrab", cmd("quit")))
+            pystray.MenuItem("Exit AeroGrab", cmd("quit")))
         self.icon = pystray.Icon("AeroGrab", image, "AeroGrab", menu)
 
     @property
@@ -5670,6 +5205,207 @@ class Tray:
                 return out
 
 
+# ============================== single instance ==============================
+class SingleInstance:
+    r"""Exactly one AeroGrab GUI per user session (v1.8.4).
+    Ownership  : a named Windows mutex (Local\AeroGrab.SingleInstance); elsewhere an flock() on ~/.aerograb/instance.lock.
+                 Both are released by the OS when the process dies, so a crash can never leave a stale lock behind.
+    IPC        : a named pipe (Windows) / unix socket, guarded by a key derived from the pairing token (multiprocessing.connection).
+                 A second launch sends {"cmd": "show"} (or "ping" for --minimized launches: browser / autostart) and exits."""
+    MUTEX = "Local\\AeroGrab.SingleInstance"
+
+    def __init__(self, home=None):
+        self.home = os.path.abspath(home or CFG_DIR)
+        tag = hashlib.sha1(os.path.normcase(self.home).encode("utf-8", "replace")).hexdigest()[:12]
+        self.mutex_name = self.MUTEX + ("" if not os.environ.get("AEROGRAB_HOME") and home is None else "." + tag)
+        if os.name == "nt":
+            self.family, self.address = "AF_PIPE", r"\\.\pipe\AeroGrab." + tag
+        else:
+            self.family, self.address = "AF_UNIX", os.path.join(self.home, "instance.sock")
+            if len(self.address) > 100:
+                self.address = os.path.join(tempfile.gettempdir(), f"aerograb-{tag}.sock")
+        self._key, self._h, self._fd, self._lis, self._closed = None, None, None, None, False
+        self.msgs = queue.Queue()
+
+    @property
+    def key(self):
+        if self._key is None:
+            self._key = hashlib.sha256(("aerograb-instance:" + get_token(self.home)).encode()).digest()
+        return self._key
+
+    def acquire(self):
+        """True: this process is the one instance. False: another one is running. Unknown errors fail open (better two windows than none)."""
+        if os.name == "nt":
+            import ctypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateMutexW.restype, k32.CreateMutexW.argtypes = ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            ctypes.set_last_error(0)
+            h = k32.CreateMutexW(None, False, self.mutex_name)
+            err = ctypes.get_last_error()
+            if not h:
+                return err != 5  # ACCESS_DENIED: the mutex exists and isn't ours to open
+            if err == 183:  # ALREADY_EXISTS
+                k32.CloseHandle(h)
+                return False
+            self._h, self._k32 = h, k32
+            return True
+        try:
+            import fcntl
+            os.makedirs(self.home, exist_ok=True)
+            fd = os.open(os.path.join(self.home, "instance.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(fd)
+                return False
+            self._fd = fd
+        except (ImportError, OSError):
+            pass
+        return True
+
+    def serve(self):
+        """Start listening for later launches (call right after acquire(), before the window is built). Requests wait in self.msgs."""
+        try:
+            from multiprocessing.connection import Listener
+            if os.name != "nt":
+                try:
+                    os.unlink(self.address)  # a leftover from a crash (we hold the lock, so nobody else owns it)
+                except OSError:
+                    pass
+                self._lis = Listener(self.address, self.family, backlog=32, authkey=self.key)
+            else:
+                self._lis = Listener(self.address, self.family, authkey=self.key)
+        except Exception:
+            self._lis = None
+            return False
+        threading.Thread(target=self._loop, daemon=True, name="aerograb-ipc").start()
+        return True
+
+    def _loop(self):
+        while not self._closed:
+            try:
+                conn = self._lis.accept()
+            except Exception:  # listener closed, or a client that failed the key / hung up mid-handshake
+                if self._closed:
+                    return
+                time.sleep(0.05)
+                continue
+            try:
+                if conn.poll(3):
+                    m = conn.recv()
+                    if isinstance(m, dict):
+                        self.msgs.put(m)
+                    conn.send("ok")
+            except Exception:
+                pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def poll(self):
+        out = []
+        while True:
+            try:
+                out.append(self.msgs.get_nowait())
+            except queue.Empty:
+                return out
+
+    def forward(self, msg, timeout=3.0):
+        """One attempt to hand `msg` to the running instance. True once it acknowledged. Never blocks longer than `timeout`."""
+        res = []
+
+        def work():
+            try:
+                from multiprocessing.connection import Client
+                c = Client(self.address, self.family, authkey=self.key)
+                try:
+                    c.send(msg)
+                    res.append(c.poll(timeout) and c.recv() == "ok")
+                finally:
+                    c.close()
+            except Exception:
+                res.append(False)
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(timeout + 1)
+        return bool(res and res[0])
+
+    def close(self):
+        """Exit: stop listening and give the lock back (so a restart after Exit / an update starts cleanly)."""
+        self._closed = True
+        if self._lis is not None:
+            try:
+                self._lis.close()
+            except Exception:
+                pass
+            self._lis = None
+        if os.name != "nt":
+            try:
+                os.unlink(self.address)
+            except OSError:
+                pass
+        if self._h:
+            try:
+                self._k32.CloseHandle(self._h)
+            except Exception:
+                pass
+            self._h = None
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = None
+
+
+def raise_foreign_window():
+    """Last resort (the running instance doesn't answer): find its window by title and bring it up. Windows only."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+        u.FindWindowW.restype, u.FindWindowW.argtypes = ctypes.c_void_p, [ctypes.c_wchar_p, ctypes.c_wchar_p]
+        u.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        u.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        h = u.FindWindowW("TkTopLevel", APP_TITLE)
+        if not h:
+            return False
+        u.ShowWindow(h, 9)  # SW_RESTORE
+        u.SetForegroundWindow(h)
+        return True
+    except Exception:
+        return False
+
+
+def claim_or_forward(minimized=False, wait=20.0, si=None):
+    """The start-up gate. Returns the SingleInstance this process now owns (go on and open the GUI), or None when a running
+    instance took over the request (this process must exit at once). Rides out the races: the owner still starting up (mutex held,
+    pipe not yet listening), the owner just quitting (lock released a moment later) and rapid repeated launches."""
+    si = si or SingleInstance()
+    if os.name == "nt" and not minimized:
+        try:
+            import ctypes
+            ctypes.windll.user32.AllowSetForegroundWindow(0xFFFFFFFF)  # let the running window take focus: this launch was a user action
+        except Exception:
+            pass
+    end = time.time() + wait
+    while True:
+        if si.acquire():
+            si.serve()
+            return si
+        if si.forward({"cmd": "ping" if minimized else "show"}):
+            return None
+        if time.time() > end:
+            if not minimized:
+                raise_foreign_window()
+            return None  # something owns the lock but never answers: don't start a second copy
+        time.sleep(0.2)
+
+
 # ============================== GUI (IDM-style window) ==============================
 tk = ttk = messagebox = filedialog = simpledialog = None  # tkinter is imported lazily so the CLI works without it
 
@@ -5707,11 +5443,178 @@ def _load_tk():
     global tk, ttk, messagebox, filedialog, simpledialog
     import tkinter as _tk
     from tkinter import ttk as _ttk, messagebox as _mb, filedialog as _fd, simpledialog as _sd
-    tk, ttk, messagebox, filedialog, simpledialog = _tk, _ttk, _mb, _fd, _sd
+    tk, ttk, filedialog = _tk, _ttk, _fd
+    messagebox, simpledialog = messagebox_themed, simpledialog_themed   # themed look-alikes: the OS ones cannot be coloured (see _box)
+
+
+_UI = {"theme": None}   # the live aerograb_theme.Theme, set by App; the themed dialogs below read fonts / icons / colours from it
+
+
+def _center_over(win, parent=None):
+    """Place a freshly built dialog over its parent window (or the middle of the screen when the parent is hidden in the tray)."""
+    try:
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        if parent is not None and parent.winfo_viewable() and parent.winfo_width() > 50:
+            x, y = parent.winfo_rootx() + (parent.winfo_width() - w) // 2, parent.winfo_rooty() + (parent.winfo_height() - h) // 3
+        else:
+            x, y = (sw - w) // 2, (sh - h) // 3
+        win.geometry(f"+{max(0, min(x, sw - w))}+{max(0, min(y, sh - h - 40))}")
+    except tk.TclError:
+        pass
+
+
+def _box(title, message, kind="info", buttons=(("OK", True),), default=0, cancel=None, parent=None):
+    """The themed replacement for the operating system's message boxes (Windows cannot colour its own, so they stay bright white in
+    Dark mode). Modal, keyboard friendly (Enter = default button, Esc = cancel), returns the value of the button that was pressed."""
+    th = _UI["theme"]
+    parent = parent or getattr(tk, "_default_root", None)
+    win = tk.Toplevel(parent)
+    win.title(title)
+    win.resizable(False, False)
+    try:
+        win.transient(parent.winfo_toplevel())
+    except (tk.TclError, AttributeError):
+        pass
+    result = [cancel]
+    px = th.px if th else (lambda n: n)
+
+    def pick(value):
+        result[0] = value
+        win.destroy()
+    body = ttk.Frame(win, padding=(px(24), px(22), px(24), px(12)))
+    body.pack(fill="both", expand=True)
+    if th:
+        win._icon = th.icon({"info": "info", "warning": "warning", "error": "error", "question": "question"}.get(kind, "info"), 32)
+        ttk.Label(body, image=win._icon).pack(side="left", anchor="n", padx=(0, px(16)))
+    ttk.Label(body, text=message, wraplength=px(440), justify="left").pack(side="left", anchor="n")
+    ttk.Separator(win, orient="horizontal").pack(fill="x", pady=(px(8), 0))
+    row = ttk.Frame(win, padding=(px(16), px(12)))
+    row.pack(fill="x")
+    widgets = []
+    for i, (label, value) in reversed(list(enumerate(buttons))):
+        b = ttk.Button(row, text=label, style="Accent.TButton" if i == default else "TButton", command=lambda v=value: pick(v))
+        b.pack(side="right", padx=(px(8), 0))
+        widgets.append((i, b, value))
+    win.bind("<Return>", lambda e: pick(buttons[default][1]))
+    win.bind("<Escape>", lambda e: pick(cancel))
+    win.protocol("WM_DELETE_WINDOW", lambda: pick(cancel))
+    _center_over(win, parent)
+    try:
+        win.grab_set()
+    except tk.TclError:
+        pass
+    for i, b, _ in widgets:
+        if i == default:
+            b.focus_set()
+    win.wait_window()
+    return result[0]
+
+
+class messagebox_themed:
+    """Same call signatures as tkinter.messagebox, drawn with the design system."""
+
+    @staticmethod
+    def showinfo(title=None, message=None, **kw):
+        _box(title or "", message or "", "info", parent=kw.get("parent"))
+        return "ok"
+
+    @staticmethod
+    def showwarning(title=None, message=None, **kw):
+        _box(title or "", message or "", "warning", parent=kw.get("parent"))
+        return "ok"
+
+    @staticmethod
+    def showerror(title=None, message=None, **kw):
+        _box(title or "", message or "", "error", parent=kw.get("parent"))
+        return "ok"
+
+    @staticmethod
+    def askyesno(title=None, message=None, **kw):
+        return bool(_box(title or "", message or "", kw.get("icon", "question"), (("Yes", True), ("No", False)), default=0 if kw.get("default") != "no" else 1, cancel=False, parent=kw.get("parent")))
+
+    @staticmethod
+    def askokcancel(title=None, message=None, **kw):
+        return bool(_box(title or "", message or "", kw.get("icon", "question"), (("OK", True), ("Cancel", False)), cancel=False, parent=kw.get("parent")))
+
+    @staticmethod
+    def askretrycancel(title=None, message=None, **kw):
+        return bool(_box(title or "", message or "", kw.get("icon", "warning"), (("Retry", True), ("Cancel", False)), cancel=False, parent=kw.get("parent")))
+
+    @staticmethod
+    def askyesnocancel(title=None, message=None, **kw):
+        return _box(title or "", message or "", kw.get("icon", "question"), (("Yes", True), ("No", False), ("Cancel", None)), cancel=None, parent=kw.get("parent"))
+
+
+def _prompt(title, prompt, initial="", parent=None, show=None, check=None):
+    """One-line input dialog: returns the entered text, or None when cancelled. `check(text)` may return an error message to keep the dialog open."""
+    th = _UI["theme"]
+    parent = parent or getattr(tk, "_default_root", None)
+    win = tk.Toplevel(parent)
+    win.title(title)
+    win.resizable(False, False)
+    try:
+        win.transient(parent.winfo_toplevel())
+    except (tk.TclError, AttributeError):
+        pass
+    px = th.px if th else (lambda n: n)
+    out, var, err = [None], tk.StringVar(value="" if initial is None else str(initial)), tk.StringVar()
+    body = ttk.Frame(win, padding=(px(22), px(20), px(22), px(6)))
+    body.pack(fill="both", expand=True)
+    ttk.Label(body, text=prompt, wraplength=px(420), justify="left").pack(anchor="w")
+    ent = ttk.Entry(body, textvariable=var, width=46, show=show or "")
+    ent.pack(fill="x", pady=(px(10), px(4)))
+    ttk.Label(body, textvariable=err, style="Danger.TLabel").pack(anchor="w")
+    ttk.Separator(win, orient="horizontal").pack(fill="x", pady=(px(6), 0))
+    row = ttk.Frame(win, padding=(px(16), px(12)))
+    row.pack(fill="x")
+
+    def ok(_=None):
+        msg = check(var.get()) if check else None
+        if msg:
+            err.set(msg)
+            return
+        out[0] = var.get()
+        win.destroy()
+    ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right", padx=(px(8), 0))
+    ttk.Button(row, text="OK", style="Accent.TButton", command=ok).pack(side="right")
+    win.bind("<Return>", ok)
+    win.bind("<Escape>", lambda e: win.destroy())
+    _center_over(win, parent)
+    try:
+        win.grab_set()
+    except tk.TclError:
+        pass
+    ent.focus_set()
+    ent.selection_range(0, "end")
+    win.wait_window()
+    return out[0]
+
+
+class simpledialog_themed:
+    @staticmethod
+    def askstring(title, prompt, **kw):
+        return _prompt(title, prompt, kw.get("initialvalue", ""), kw.get("parent"), kw.get("show"))
+
+    @staticmethod
+    def askinteger(title, prompt, **kw):
+        lo, hi = kw.get("minvalue"), kw.get("maxvalue")
+
+        def check(text):
+            try:
+                v = int(text.strip())
+            except ValueError:
+                return "Please enter a whole number."
+            if lo is not None and v < lo or hi is not None and v > hi:
+                return f"Enter a number between {lo if lo is not None else '-'} and {hi if hi is not None else '-'}."
+            return None
+        r = _prompt(title, prompt, kw.get("initialvalue", ""), kw.get("parent"), None, check)
+        return None if r is None else int(r.strip())
 
 
 class Tip:
-    """A small tooltip, for toolbar buttons that show only an icon."""
+    """A small themed tooltip for toolbar buttons and other icon-only controls."""
 
     def __init__(self, widget, text):
         self.w, self.text, self.tw, self.job = widget, text, None, None
@@ -5721,15 +5624,21 @@ class Tip:
 
     def _enter(self, _=None):
         self._leave()
-        self.job = self.w.after(500, self._show)
+        self.job = self.w.after(450, self._show)
 
     def _show(self):
         self.job = None
         try:
+            p = PAL
             tw = self.tw = tk.Toplevel(self.w)
             tw.wm_overrideredirect(True)
-            tw.wm_geometry(f"+{self.w.winfo_rootx() + 10}+{self.w.winfo_rooty() + self.w.winfo_height() + 4}")
-            tk.Label(tw, text=self.text, background="#ffffe1", foreground="#000000", relief="solid", borderwidth=1, padx=4, pady=1).pack()
+            tw.configure(bg=p["border_strong"], bd=0)
+            tk.Label(tw, text=self.text() if callable(self.text) else self.text, bg=p["elevated"], fg=p["fg"], font="TkTooltipFont", padx=10, pady=5,
+                     justify="left").pack(padx=1, pady=1)
+            tw.update_idletasks()
+            x = self.w.winfo_rootx() + max(0, (self.w.winfo_width() - tw.winfo_reqwidth()) // 2)
+            x = max(0, min(x, self.w.winfo_screenwidth() - tw.winfo_reqwidth()))
+            tw.wm_geometry(f"+{x}+{self.w.winfo_rooty() + self.w.winfo_height() + 6}")
         except tk.TclError:
             self.tw = None
 
@@ -5742,14 +5651,6 @@ class Tip:
         except tk.TclError:
             pass
         self.job = self.tw = None
-
-
-def glyph_image(name):
-    """A 32x32 toolbar icon drawn from GLYPHS (for the buttons the classic icon set has no picture for)."""
-    img = tk.PhotoImage(width=32, height=32)
-    for x0, y0, x1, y1, colour in GLYPHS[name]:
-        img.put(colour, to=(x0, y0, x1 + 1, y1 + 1))
-    return img
 
 
 class FloatingWidget:
@@ -5771,6 +5672,7 @@ class FloatingWidget:
             return
         app, st = self.app, self.app.mgr.settings
         w = self.win = tk.Toplevel(app.root)
+        w.configure(bd=0)
         w.overrideredirect(True)
         try:
             w.attributes("-topmost", True)
@@ -5854,10 +5756,10 @@ class FloatingWidget:
         cv.create_oval(cx - r, cy - r, cx + r, cy + r, outline=p["grid"], width=5)
         if act and frac > 0:
             cv.create_arc(cx - r, cy - r, cx + r, cy + r, start=90, extent=-min(359.9, 360 * frac), style="arc", outline=p["accent"], width=5)
-        cv.create_text(cx, cy, text=f"{int(frac * 100)}%" if known else ("\u2193" if act else "\u2713"), fill=p["fg"], font=("TkDefaultFont", 9, "bold"))
+        cv.create_text(cx, cy, text=f"{int(frac * 100)}%" if known else ("\u2193" if act else "\u2713"), fill=p["fg"], font="AeroSmallBold")
         waiting = sum(d.status == "Queued" for d in items)
-        cv.create_text(58, 19, anchor="w", text=(fmt_rate(sum(d.speed for d in act)) or "Starting...") if act else "Idle", fill=p["fg"], font=("TkDefaultFont", 10, "bold"))
-        cv.create_text(58, 37, anchor="w", text=f"{len(act)} active" + (f", {waiting} queued" if waiting else ""), fill=p["muted"], font=("TkDefaultFont", 8))
+        cv.create_text(58, 19, anchor="w", text=(fmt_rate(sum(d.speed for d in act)) or "Starting...") if act else "Idle", fill=p["fg"], font="AeroBold")
+        cv.create_text(58, 37, anchor="w", text=f"{len(act)} active" + (f", {waiting} queued" if waiting else ""), fill=p["muted"], font="AeroSmall")
 
 
 # ============================ Updates: GitHub Releases ============================
@@ -6088,32 +5990,34 @@ class App:
     """The main window, laid out like IDM's classic interface: menu bar, icon toolbar, a navigation tree on the left
     (All Downloads > categories, Unfinished, Finished, Grabber projects, Queues) and the download list on the right."""
 
-    def __init__(self, port=API_PORT, minimized=False):
+    def __init__(self, port=API_PORT, minimized=False, single=None):
         _load_tk()
-        self.port, self.minimized = port, minimized
+        self.port, self.minimized, self.single = port, minimized, single  # single: the SingleInstance this process owns (None in tests)
         self.mgr = Manager()
         st = self.mgr.settings
+        enable_dpi_awareness()   # Windows: sharp at 125 / 150 / 200 % scaling (must happen before the first window exists)
         self.root = root = tk.Tk()
         root.title(APP_TITLE)
-        root.geometry("1220x700")
-        root.minsize(860, 480)
+        self.theme = Theme(root, root.winfo_fpixels("1i") / 96.0)   # the design system: fonts, ttk styles, icons (aerograb_theme.py)
+        _UI["theme"] = self.theme
+        self.px, self.style = self.theme.px, self.theme.style
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"{min(self.px(1220), sw - 40)}x{min(self.px(700), sh - 90)}")   # fits a 1366x768 screen at any scaling
+        root.minsize(min(self.px(860), sw - 40), min(self.px(480), sh - 90))
         try:  # window / taskbar icon (embedded, so it also works from a single-file build)
             root._icon = tk.PhotoImage(data=ICON_B64)
             root.iconphoto(True, root._icon)
         except tk.TclError:
             pass
-        self.style = ttk.Style(root)
-        if platform.system() == "Linux" and "clam" in self.style.theme_names():
-            self.style.theme_use("clam")
-        self.style.configure("Treeview", rowheight=22)
-        self.style.configure("Toolbutton", padding=(8, 4))
-        self._native_theme, self._themed, self._was_custom, self._mode_seen, self._mode_check = self.style.theme_use(), False, False, "light", 0.0
+        self._mode_seen, self._mode_check = "dark", 0.0
+        self._row_cache, self._status_imgs, self._open_menu, self._menu_icons, self._hover_row = {}, {}, None, {}, None
+        self._elide_cache, self._name_w, self._bars, self._bar_pool, self._idle, self._ph = {}, 0, {}, [], {}, True
+        self._tb_compact, self._tb_full_w = False, 1
         self.sounds, self.sound_seen = SoundPlayer(st, focused=self._has_focus), {}
         self.sounds.fallback = root.bell  # no sound player or sound file on this machine: at least beep
+        root.bind_class("Toplevel", "<Map>", self._style_toplevel, add="+")   # every dialog gets the themed title bar the moment it appears
         self.apply_theme()
-        self.icons = {k: tk.PhotoImage(data=v) for k, v in UI_ICONS.items()}
-        self.icons.update({g: glyph_image(g) for g in GLYPHS})
-        self.icons_small = {k: im.subsample(2) for k, im in self.icons.items() if k in TOOLBAR_ACTIONS}  # the 'small icons' toolbar option
+
         self.folder = tk.StringVar(value=st.get("folder") or os.path.join(os.path.expanduser("~"), "Downloads"))
         st["folder"] = self.folder.get()
         self.conns = tk.IntVar(value=int(st.get("connections") or 8))
@@ -6121,7 +6025,7 @@ class App:
         self.limit_var.trace_add("write", self._on_limit)
         self.flt = tk.StringVar(value="all")  # "all" | "unfinished" | "finished" | "cat:X" | "queue:X" | "project:X" | "queues" | "projects"
         self.sort = ("", False)
-        self.show_side, self.show_toolbar, self.show_status, self.show_graph = (tk.BooleanVar(value=True) for _ in range(4))
+        self.show_side, self.show_toolbar, self.show_status, self.show_map = (tk.BooleanVar(value=True) for _ in range(4))
         self.tray, self.last_tip, self.seen, self.hint_shown = None, "", {}, False
         self.side_map = {}      # navigation tree row id -> (label, filter)
         self.menu_rules = []    # (menu, index, rule): which entries are greyed out for the current selection
@@ -6151,103 +6055,48 @@ class App:
             return False
 
     def apply_theme(self):
-        """Light / dark / follow-the-system, plus the accent colour. Safe to call at any time (Options calls it after OK)."""
-        st, s, root = self.mgr.settings, self.style, self.root
+        """Dark / Light / follow-the-system, plus the accent colour. Safe to call at any time and as often as you like (the View menu, the header
+        button and Options all call it): it only re-colours the interface - the download engine, queues and settings are not touched."""
+        st, root = self.mgr.settings, self.root
         skin = str(st.get("skin") or "default").lower()
         skin = skin if skin in SKINS else "default"
-        mode = SKINS[skin][0] if skin != "default" else resolve_mode(st.get("theme", "system"))  # a skin brings its own light / dark
+        mode = SKINS[skin][0] if skin != "default" else resolve_mode(st.get("theme", "dark"))  # a skin brings its own light / dark
         p = make_palette(mode, valid_hex(st.get("accent")) or DEFAULT_ACCENT, skin)
-        set_palette(p)
         self._mode_seen = mode
-        custom = mode == "dark" or p["accent"] != DEFAULT_ACCENT or skin != "default"
-        if not custom and platform.system() != "Linux":
-            s.theme_use(self._native_theme)  # the native Windows / macOS look is kept when nothing was changed
-            self._themed = False
-        elif custom or self._themed:
-            s.theme_use("clam")  # the only built-in theme that can be coloured everywhere
-            self._style_clam(p)
-            self._themed = True
-        s.configure("Treeview", rowheight=22)
-        s.configure("Toolbutton", padding=(8, 4))
-        if custom or self._themed or self._was_custom:
-            self._tk_defaults(p)
-            self._repaint(root)
-        self._was_custom = custom
-        set_dark_titlebar(root, mode == "dark")
+        self.theme.apply(p)
+        root.configure(bg=p["bg"])
+        self.theme.repaint(root)
+        style_titlebar(root, p)
+        for w in root.winfo_children():
+            if w.winfo_class() == "Toplevel":
+                self._style_toplevel(w)
+        if hasattr(self, "tree"):
+            self.refresh_visuals()
 
-    def _style_clam(self, p):
-        s = self.style
-        s.configure(".", background=p["bg"], foreground=p["fg"], fieldbackground=p["field"], bordercolor=p["border"], darkcolor=p["border"],
-                    lightcolor=p["border"], troughcolor=p["panel"], focuscolor=p["accent"], insertcolor=p["fg"],
-                    selectbackground=p["accent"], selectforeground=p["accent_fg"])
-        s.map(".", foreground=[("disabled", p["muted"])])
-        for name in ("TButton", "TMenubutton"):
-            s.configure(name, background=p["button"], foreground=p["fg"])
-            s.map(name, background=[("pressed", p["accent"]), ("active", p["button_active"]), ("disabled", p["bg"])],
-                  foreground=[("pressed", p["accent_fg"]), ("disabled", p["muted"])])
-        s.configure("Toolbutton", background=p["bg"], foreground=p["fg"])
-        s.configure("Brand.TLabel", background=p["bg"], foreground=p["accent"], font=("TkDefaultFont", 17, "bold"))
-        s.configure("BrandVer.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 10, "bold"))
-        s.configure("BrandDash.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 12))
-        s.configure("Tagline.TLabel", background=p["bg"], foreground=p["muted"], font=("TkDefaultFont", 11))
-        s.map("Toolbutton", background=[("pressed", p["accent"]), ("active", p["button_active"])], foreground=[("disabled", p["muted"])])
-        for name in ("TCheckbutton", "TRadiobutton"):
-            s.configure(name, background=p["bg"], indicatorcolor=p["field"])
-            s.map(name, background=[("active", p["bg"])], indicatorcolor=[("selected", p["accent"]), ("pressed", p["accent"])])
-        for name in ("TEntry", "TCombobox", "TSpinbox"):
-            s.configure(name, fieldbackground=p["field"], foreground=p["fg"], insertcolor=p["fg"], bordercolor=p["border"])
-            s.map(name, fieldbackground=[("readonly", p["panel"]), ("disabled", p["bg"])], foreground=[("disabled", p["muted"])])
-        for name in ("TCombobox", "TSpinbox"):
-            s.configure(name, arrowcolor=p["fg"], background=p["button"])
-        s.configure("TNotebook", background=p["bg"], bordercolor=p["border"])
-        s.configure("TNotebook.Tab", background=p["panel"], foreground=p["fg"], padding=(10, 4))
-        s.map("TNotebook.Tab", background=[("selected", p["bg"])], foreground=[("selected", p["fg"])])
-        s.configure("Treeview", background=p["field"], fieldbackground=p["field"], foreground=p["fg"])
-        s.map("Treeview", background=[("selected", p["accent"])], foreground=[("selected", p["accent_fg"])])
-        s.configure("Treeview.Heading", background=p["button"], foreground=p["fg"], relief="flat")
-        s.map("Treeview.Heading", background=[("active", p["button_active"])])
-        s.configure("TScrollbar", background=p["button"], troughcolor=p["panel"], arrowcolor=p["fg"])
-        s.map("TScrollbar", background=[("active", p["button_active"])])
-        s.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["panel"])
-        s.configure("TSeparator", background=p["border"])
-        s.configure("TPanedwindow", background=p["bg"])
-        s.configure("TLabelframe", background=p["bg"])
-        s.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"])
-
-    def _tk_defaults(self, p):
-        """Colours for the classic (non-ttk) widgets that dialogs create later: windows, text boxes, menus, drop-down lists."""
-        for pat, val in (("*Toplevel.background", p["bg"]), ("*Text.background", p["field"]), ("*Text.foreground", p["fg"]),
-                         ("*Text.insertBackground", p["fg"]), ("*Text.selectBackground", p["accent"]), ("*Text.selectForeground", p["accent_fg"]),
-                         ("*Listbox.background", p["field"]), ("*Listbox.foreground", p["fg"]), ("*Listbox.selectBackground", p["accent"]),
-                         ("*Listbox.selectForeground", p["accent_fg"]), ("*Menu.background", p["panel"]), ("*Menu.foreground", p["fg"]),
-                         ("*Menu.activeBackground", p["accent"]), ("*Menu.activeForeground", p["accent_fg"]), ("*Canvas.background", p["graph_bg"])):
-            self.root.option_add(pat, val)
-
-    def _repaint(self, w):
-        """Recolour widgets that already exist (the ttk ones follow the style by themselves)."""
-        p, cls = PAL, w.winfo_class()
+    def _style_toplevel(self, e):
+        w = getattr(e, "widget", e)
         try:
-            if w is getattr(self, "gcv", None):
-                w.configure(bg=p["graph_bg"], highlightbackground=p["border"])
-            elif w is getattr(self, "mapcv", None):
-                w.configure(bg=p["map_bg"])
-            elif cls in ("Tk", "Toplevel"):
-                w.configure(bg=p["bg"])
-            elif cls == "Canvas":
-                w.configure(bg=p["graph_bg"])
-            elif cls in ("Text", "Listbox"):
-                w.configure(bg=p["field"], fg=p["fg"], selectbackground=p["accent"], selectforeground=p["accent_fg"])
-                if cls == "Text":
-                    w.configure(insertbackground=p["fg"])
-            elif cls == "Menu":
-                w.configure(bg=p["panel"], fg=p["fg"], activebackground=p["accent"], activeforeground=p["accent_fg"], disabledforeground=p["muted"])
-        except tk.TclError:
+            if w.winfo_class() == "Toplevel" and not w.overrideredirect():
+                style_titlebar(w, self.theme.p)
+        except (tk.TclError, AttributeError):
             pass
-        for c in w.winfo_children():
-            self._repaint(c)
+
+    def icon(self, name, size=20, **kw):
+        return self.theme.icon(name, size, **kw)
+
+    def set_theme(self, mode):
+        """Dark or Light (or 'system'), chosen from the header button, the View menu or Options. Saved with the other settings, applied at once."""
+        st = self.mgr.settings
+        st["theme"] = mode
+        st["skin"] = "default"   # a skin would override the choice
+        self.mgr.save_settings()
+        self.apply_theme()
+
+    def toggle_theme(self):
+        self.set_theme("light" if self.theme.p["mode"] == "dark" else "dark")
 
     def follow_system_theme(self):
-        if self.mgr.settings.get("theme", "system") == "system" and self.mgr.settings.get("skin", "default") == "default" and time.time() - self._mode_check > 30:
+        if self.mgr.settings.get("theme", "dark") == "system" and self.mgr.settings.get("skin", "default") == "default" and time.time() - self._mode_check > 30:
             self._mode_check = time.time()
             if resolve_mode("system") != self._mode_seen:
                 self.apply_theme()
@@ -6299,154 +6148,345 @@ class App:
 
     # ------------------------------------------------------------------ menu bar
     def build_menu(self):
+        """The menu *model* (labels, commands, shortcuts, icons). Windows draws a native menu bar in plain white no matter what colours it is given,
+        so the visible bar is built from these menus by build_menubar() and the model itself is never attached to the window."""
         bar = tk.Menu(self.root, tearoff=0)
-        self.root.config(menu=bar)
         self.menubar = bar
+        self.theme_var = tk.StringVar(value=self.mgr.settings.get("theme", "dark"))
 
         def menu(label, underline=0):
             m = tk.Menu(bar, tearoff=0, postcommand=self.update_state)
             bar.add_cascade(label=label, menu=m, underline=underline)
             return m
 
-        def item(m, label, cmd, accel=None, need=None):
+        def pic(m, icon):
+            if not icon:
+                return {}
+            self._menu_icons[(str(m), m.index("end"))] = icon
+            return dict(image=self.theme.padded_icon(icon, 16), compound="left")
+
+        def item(m, label, cmd, accel=None, need=None, icon=None):
             m.add_command(label=label, command=cmd, accelerator=accel)
+            if icon:
+                m.entryconfig(m.index("end"), **pic(m, icon))
+            if need:
+                self.menu_rules.append((m, m.index("end"), need))
+
+        def cascade(m, label, sub, icon, need=None):
+            m.add_cascade(label=label, menu=sub)
+            m.entryconfig(m.index("end"), **pic(m, icon))
             if need:
                 self.menu_rules.append((m, m.index("end"), need))
 
         tasks = menu("Tasks")
-        item(tasks, "Add new download...", self.add_dialog, "Ctrl+N")
-        item(tasks, "Add batch download from clipboard", self.add_from_clipboard)
-        item(tasks, "Clipboard history...", self.clipboard_dialog)
-        item(tasks, "Run site grabber...", self.grabber_dialog)
+        item(tasks, "Add new download...", self.add_dialog, "Ctrl+N", icon="add")
+        item(tasks, "Add batch download from clipboard", self.add_from_clipboard, icon="paste")
+        item(tasks, "Clipboard history...", self.clipboard_dialog, icon="clip")
+        item(tasks, "Run site grabber...", self.grabber_dialog, icon="grabber")
         tasks.add_separator()
-        item(tasks, "Export download list...", self.export_list)
-        item(tasks, "Import download list...", self.import_list)
+        item(tasks, "Export download list...", self.export_list, icon="export")
+        item(tasks, "Import download list...", self.import_list, icon="import")
         tasks.add_separator()
-        item(tasks, "Exit", self.on_close, "Alt+F4")
+        item(tasks, "Exit", self.on_close, "Alt+F4", icon="exit")
 
         f = menu("File")
-        item(f, "Open", self.open_file, "Enter", "done")
-        item(f, "Open folder", self.open_folder, None, "sel")
-        item(f, "Move/Rename...", self.rename_file, "F2", "done1")
-        item(f, "Redownload", self.redownload, None, "sel")
-        item(f, "Verify checksum / hashes...", self.hashes_selected, None, "done1")
-        item(f, "Scan for viruses", self.scan_selected, None, "done")
+        item(f, "Open", self.open_file, "Enter", "done", icon="open")
+        item(f, "Open folder", self.open_folder, None, "sel", icon="open_folder")
+        item(f, "Move/Rename...", self.rename_file, "F2", "done1", icon="rename")
+        item(f, "Redownload", self.redownload, None, "sel", icon="redownload")
+        item(f, "Verify checksum / hashes...", self.hashes_selected, None, "done1", icon="hash")
+        item(f, "Scan for viruses", self.scan_selected, None, "done", icon="scan")
         f.add_separator()
-        item(f, "Properties...", self.properties_dialog, "Alt+Enter", "sel1")
-        item(f, "Copy address", self.copy_address, "Ctrl+C", "sel")
+        item(f, "Properties...", self.properties_dialog, "Alt+Enter", "sel1", icon="properties")
+        item(f, "Copy address", self.copy_address, "Ctrl+C", "sel", icon="copy")
 
         d = menu("Downloads")
-        item(d, "Resume", self.resume, "Ctrl+R", "resumable")
-        item(d, "Stop", self.stop, "Ctrl+S", "active")
-        item(d, "Stop All", self.stop_all, None, "anyactive")
+        item(d, "Resume", self.resume, "Ctrl+R", "resumable", icon="resume")
+        item(d, "Stop", self.stop, "Ctrl+S", "active", icon="stop")
+        item(d, "Stop All", self.stop_all, None, "anyactive", icon="stopall")
         d.add_separator()
-        item(d, "Delete", self.delete, "Del", "sel")
-        item(d, "Delete completed", self.delete_completed, None, "anydone")
+        item(d, "Delete", self.delete, "Del", "sel", icon="delete")
+        item(d, "Delete completed", self.delete_completed, None, "anydone", icon="delc")
         d.add_separator()
         self.menu_cat = tk.Menu(d, tearoff=0, postcommand=lambda: self._fill_cat_menu(self.menu_cat))
-        d.add_cascade(label="Move to category", menu=self.menu_cat)
-        self.menu_rules.append((d, d.index("end"), "sel"))
+        cascade(d, "Move to category", self.menu_cat, "to_category", "sel")
         self.menu_que = tk.Menu(d, tearoff=0, postcommand=lambda: self._fill_queue_menu(self.menu_que))
-        d.add_cascade(label="Move to queue", menu=self.menu_que)
-        self.menu_rules.append((d, d.index("end"), "sel"))
+        cascade(d, "Move to queue", self.menu_que, "to_queue", "sel")
         d.add_separator()
-        item(d, "Start queue", self.start_queue)
-        item(d, "Stop queue", self.stop_queue)
-        item(d, "New queue...", self.new_queue)
+        item(d, "Start queue", self.start_queue, icon="startq")
+        item(d, "Stop queue", self.stop_queue, icon="stopq")
+        item(d, "New queue...", self.new_queue, icon="new_queue")
         d.add_separator()
-        item(d, "Speed limiter...", self.speed_dialog)
-        item(d, "Limit selected downloads...", self.limit_selected, None, "sel")
-        item(d, "Scheduler...", self.scheduler_dialog)
-        item(d, "Categories...", self.categories_dialog)
+        item(d, "Speed limiter...", self.speed_dialog, icon="limiter")
+        item(d, "Limit selected downloads...", self.limit_selected, None, "sel", icon="limiter")
+        item(d, "Scheduler...", self.scheduler_dialog, icon="scheduler")
+        item(d, "Categories...", self.categories_dialog, icon="categories")
         d.add_separator()
-        item(d, "Options...", self.options_dialog)
+        item(d, "Options...", self.options_dialog, icon="options")
 
         v = menu("View")
         for label, var, cmd in (("Toolbar", self.show_toolbar, self.apply_layout), ("Categories pane", self.show_side, self.apply_layout),
-                                ("Speed graph", self.show_graph, self.apply_layout), ("Status bar", self.show_status, self.apply_layout)):
+                                ("Segment map", self.show_map, self.apply_layout), ("Status bar", self.show_status, self.apply_layout)):
             v.add_checkbutton(label=label, variable=var, command=cmd)
         v.add_separator()
+        themes = tk.Menu(v, tearoff=0)
+        for label, key, icon in (("Dark", "dark", "moon"), ("Light", "light", "sun"), ("Follow system", "system", "monitor")):
+            themes.add_radiobutton(label=label, variable=self.theme_var, value=key, command=lambda k=key: self.set_theme(k))
+        cascade(v, "Theme", themes, "moon")
         v.add_checkbutton(label="Floating widget", variable=self.show_widget, command=lambda: self.toggle_widget(self.show_widget.get()))
-        item(v, "Customize toolbar...", self.customize_toolbar)
+        item(v, "Customize toolbar...", self.customize_toolbar, icon="sliders")
         v.add_separator()
         sortm = tk.Menu(v, tearoff=0)
         for key, title, _ in COLUMNS:
             sortm.add_command(label=title, command=lambda k=key: self.sort_by(k, toggle=False))
         sortm.add_separator()
         sortm.add_command(label="Original order", command=lambda: self.sort_by("", toggle=False))
-        v.add_cascade(label="Sort by", menu=sortm)
-        item(v, "Refresh", self.tick_once, "F5")
+        cascade(v, "Sort by", sortm, "sort")
+        item(v, "Refresh", self.tick_once, "F5", icon="refresh")
 
         h = menu("Help")
-        item(h, "Quick help", self.help_dialog)
-        item(h, "Browser extension setup...", self.pairing_dialog)
-        item(h, "Keyboard shortcuts", self.shortcuts_dialog)
-        item(h, "Check for updates...", lambda: self.start_update_check(manual=True))
+        item(h, "Quick help", self.help_dialog, icon="help")
+        item(h, "Browser extension setup...", self.pairing_dialog, icon="puzzle")
+        item(h, "Keyboard shortcuts", self.shortcuts_dialog, icon="keyboard")
+        item(h, "Check for updates...", lambda: self.start_update_check(manual=True), icon="update")
         h.add_separator()
-        item(h, "About AeroGrab", self.about_dialog)
+        item(h, "About AeroGrab", self.about_dialog, icon="about")
 
         r = menu("Registration")
-        item(r, "Registration status...", self.registration_dialog)
-        item(r, "License (MIT)...", self.license_dialog)
+        item(r, "Registration status...", self.registration_dialog, icon="registration")
+        item(r, "License (MIT)...", self.license_dialog, icon="license")
+
+    # ------------------------------------------------------------------ the visible menu bar
+    def build_menubar(self, parent):
+        """A themed menu bar made of flat labels that open the menus of the model. Hover switches between menus; Alt+letter opens one."""
+        fr = tk.Frame(parent, bd=0, highlightthickness=0)
+        fr._keep_bg = True
+        self.menubar_frame, self.menu_labels, self._menu_hot = fr, [], None
+        for i in range(self.menubar.index("end") + 1):
+            label = self.menubar.entrycget(i, "label")
+            m = self.root.nametowidget(self.menubar.entrycget(i, "menu"))
+            b = tk.Label(fr, text=label, padx=self.px(11), pady=self.px(6), bd=0)
+            b._keep_bg = True
+            b.pack(side="left", padx=1)
+            b.bind("<Button-1>", lambda e, b=b, m=m: self.open_menu(b, m))
+            b.bind("<Enter>", lambda e, b=b, m=m: self._menu_enter(b, m))
+            b.bind("<Leave>", lambda e, b=b: self._menu_leave(b))
+            m.bind("<Unmap>", lambda e, b=b: self._menu_closed(b), add="+")
+            self.menu_labels.append((b, m))
+            for ch in {label[0].lower(), label[0].upper()}:
+                self.root.bind(f"<Alt-{ch}>", lambda e, b=b, m=m: self.open_menu(b, m))
+        self.paint_menubar()
+        return fr
+
+    def paint_menubar(self):
+        p = self.theme.p
+        self.menubar_frame.configure(bg=p["bg"])
+        for b, m in self.menu_labels:
+            on = self._open_menu and self._open_menu[0] is b
+            hot = self._menu_hot is b
+            b.configure(bg=p["selected"] if on else p["hover"] if hot else p["bg"], fg=p["fg"], font="TkDefaultFont")
+
+    def _menu_enter(self, b, m):
+        self._menu_hot = b
+        if self._open_menu and self._open_menu[0] is not b:   # a menu is open: moving to a neighbour switches to it, like a native menu bar
+            self.close_menu()
+            self.open_menu(b, m)
+        self.paint_menubar()
+
+    def _menu_leave(self, b):
+        if self._menu_hot is b:
+            self._menu_hot = None
+        self.paint_menubar()
+
+    def open_menu(self, b, m):
+        if self._open_menu and self._open_menu[0] is b:
+            return self.close_menu()
+        self.close_menu()
+        self._open_menu = (b, m)
+        self.paint_menubar()
+        try:
+            m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+        finally:
+            try:
+                m.grab_release()
+            except tk.TclError:
+                pass
+            if platform.system() == "Windows":   # tk_popup blocks there: the menu is closed when it returns
+                self._menu_closed(b)
+
+    def close_menu(self):
+        if self._open_menu:
+            b, m = self._open_menu
+            self._open_menu = None
+            try:
+                m.unpost()
+            except tk.TclError:
+                pass
+            self.paint_menubar()
+
+    def _menu_closed(self, b):
+        if self._open_menu and self._open_menu[0] is b:
+            self._open_menu = None
+            self.paint_menubar()
+
+    def refresh_menu_icons(self):
+        """Menus keep their pictures after a theme change, tinted for the new palette; entries that are greyed out get the dimmed picture."""
+        fl = self.flags() if hasattr(self, "tree") else {}
+        off = {}
+        for m, idx, rule in self.menu_rules:
+            off.setdefault(str(m), {})[idx] = not fl.get(rule, True)
+        for (mname, idx), icon in self._menu_icons.items():
+            try:
+                m = self.root.nametowidget(mname)
+                dim = off.get(mname, {}).get(idx, False)
+                m.entryconfig(idx, image=self.theme.padded_icon(icon, 16, color=self.theme.p["disabled"]) if dim else self.theme.padded_icon(icon, 16))
+            except (tk.TclError, KeyError):
+                pass
 
     # ------------------------------------------------------------------ window layout
     def build_ui(self):
-        root = self.root
+        root, px, p = self.root, self.px, self.theme.p
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(2, weight=1)
-        # brand header: bold accent-coloured name with the tagline beside it
-        self.brand = ttk.Frame(root, padding=(10, 6, 10, 0))
+        # ---- header: brand mark + name + version, the menu bar, then search and the theme switch on the right
+        self.brand = ttk.Frame(root, padding=(px(12), px(6), px(12), px(4)))
         self.brand.grid(row=0, column=0, sticky="ew")
+        self.logo_img = tk.PhotoImage(data=BRAND_B64[64 if self.theme.scale >= 1.5 else 32])
+        if self.theme.scale >= 1.5:
+            self.logo_img = self.logo_img.subsample(2)   # 64 px source drawn at 32 px: crisp on high-DPI screens
+        ttk.Label(self.brand, image=self.logo_img).pack(side="left", padx=(0, px(8)))
         ttk.Label(self.brand, text=APP_NAME, style="Brand.TLabel").pack(side="left")
-        ttk.Label(self.brand, text=f"v{__version__}", style="BrandVer.TLabel").pack(side="left", padx=(6, 0), pady=(5, 0))   # version right beside the name
-        ttk.Label(self.brand, text="  -  ", style="BrandDash.TLabel").pack(side="left")
-        ttk.Label(self.brand, text=APP_TAGLINE, style="Tagline.TLabel").pack(side="left", pady=(3, 0))
-        # toolbar: big icon above the label, flat buttons, grouped by separators
-        self.toolbar = ttk.Frame(root, padding=(4, 3))
+        ttk.Label(self.brand, text=f"v{__version__}", style="BrandVer.TLabel").pack(side="left", padx=(px(6), 0), pady=(px(3), 0))
+        self.build_menubar(self.brand).pack(side="left", padx=(px(20), 0))
+        self.theme_btn = ttk.Button(self.brand, style="Tool.TButton", command=self.toggle_theme, takefocus=True)
+        self.theme_btn.pack(side="right")
+        Tip(self.theme_btn, lambda: "Switch to the Light theme" if self.theme.p["mode"] == "dark" else "Switch to the Dark theme")
+        self.search = tk.StringVar()
+        self.search_box = tk.Frame(self.brand, highlightthickness=1, bd=0)
+        self.search_box._keep_bg = True
+        self.search_icon = tk.Label(self.search_box, bd=0)
+        self.search_icon._keep_bg = True
+        self.search_icon.pack(side="left", padx=(px(8), 0))
+        self.search_entry = tk.Entry(self.search_box, textvariable=self.search, width=20, bd=0, highlightthickness=0, relief="flat")
+        self.search_entry.pack(side="left", padx=px(6), pady=px(5), fill="x", expand=True)
+        self.search_box.pack(side="right", padx=(0, px(10)))
+        self.search_entry.bind("<FocusIn>", lambda e: self._search_focus(True))
+        self.search_entry.bind("<FocusOut>", lambda e: self._search_focus(False))
+        self.search_entry.bind("<Escape>", lambda e: (self.search.set(""), self.tree.focus_set()))
+        self.search.trace_add("write", lambda *_: self._search_changed())
+        Tip(self.search_entry, "Search downloads by name, address or description")
+        self.search.set("Search downloads")
+        # ---- toolbar: big tinted icon above the label, flat rounded buttons, grouped by separators
+        self.toolbar = ttk.Frame(root)
         self.toolbar.grid(row=1, column=0, sticky="ew")
+        self.toolbar_inner = ttk.Frame(self.toolbar, padding=(px(8), px(3)))
+        self.toolbar_inner.pack(fill="x")
+        ttk.Separator(self.toolbar, orient="horizontal").pack(fill="x")
         self.tbtn = {}
         self.rebuild_toolbar()
-        # navigation tree (left) + download list (right) in a resizable split
+        # ---- navigation tree (left) + download list (right) in a resizable split
         self.body = ttk.PanedWindow(root, orient="horizontal")
-        self.body.grid(row=2, column=0, sticky="nsew", padx=4, pady=(0, 2))
-        self.side_frame = ttk.Frame(self.body)
-        self.side = ttk.Treeview(self.side_frame, show="tree", selectmode="browse")
-        self.side.column("#0", width=250, minwidth=150)
-        self.side.pack(fill="both", expand=True)
+        self.body.grid(row=2, column=0, sticky="nsew", padx=px(8), pady=(px(6), px(4)))
+        self.side_frame = ttk.Frame(self.body, style="Side.TFrame")
+        self.side = ttk.Treeview(self.side_frame, show="tree", columns=("n",), selectmode="browse", style="Side.Treeview", height=6)
+        self.side.column("#0", width=px(212), minwidth=px(140))
+        self.side.column("n", width=px(46), minwidth=px(36), anchor="e", stretch=False)
+        self.side.pack(fill="both", expand=True, padx=(px(4), 0), pady=px(4))
         self.side.bind("<<TreeviewSelect>>", self.on_side)
-        self.list_frame = ttk.Frame(self.body)
-        self.tree = ttk.Treeview(self.list_frame, columns=[c[0] for c in COLUMNS], show="headings", selectmode="extended")
+        self.list_frame = ttk.Frame(self.body, style="Surface.TFrame")
+        self.list_frame.grid_rowconfigure(0, weight=1)
+        self.list_frame.grid_columnconfigure(0, weight=1)
+        self.tree = ttk.Treeview(self.list_frame, columns=[c[0] for c in COLUMNS], displaycolumns=[c[0] for c in COLUMNS if c[0] != "name"],
+                                 show="tree headings", selectmode="extended", style="Main.Treeview", height=6)
+        anchors = {"q": "center", "size": "e", "left": "e", "rate": "e"}
         for key, title, w in COLUMNS:
-            self.tree.heading(key, text=title, command=lambda k=key: self.sort_by(k))
-            self.tree.column(key, width=w, minwidth=30, anchor="center" if key == "q" else "w", stretch=key in ("name", "desc"))
-        sb = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
-        self.tree.pack(side="left", fill="both", expand=True)
-        self.tree.bind("<<TreeviewSelect>>", lambda e: self.update_state())
+            col = "#0" if key == "name" else key
+            self.tree.heading(col, text=title, command=lambda k=key: self.sort_by(k), anchor="w" if key not in anchors else anchors[key])
+            self.tree.column(col, width=px(w), minwidth=px(30), anchor=anchors.get(key, "w"), stretch=key in ("name", "desc"))
+        self.tree.heading("name", text="File Name")
+        self.tree.column("#0", width=px(230), minwidth=px(120))
+        self.vsb = ttk.Scrollbar(self.list_frame, orient="vertical", command=self.tree.yview)
+        self.hsb = ttk.Scrollbar(self.list_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=self._yscrolled, xscrollcommand=self._xscrolled)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        self.vsb.grid(row=0, column=1, sticky="ns")
+        self.hsb.grid(row=1, column=0, sticky="ew")
+        self.tree.bind("<<TreeviewSelect>>", lambda e: (self.update_state(), self.after_idle_once(self._place_bars)))
         self.tree.bind("<Double-1>", self.on_double_click)
+        self.tree.bind("<Motion>", self._row_hover)
+        self.tree.bind("<Leave>", lambda e: self._row_hover(None))
+        self.tree.bind("<Configure>", self._tree_resized, add="+")
+        self.tree.bind("<ButtonRelease-1>", lambda e: self.after_idle_once(self._elide_all), add="+")
+        self.tree.bind("<MouseWheel>", lambda e: self.after_idle_once(self._place_bars), add="+")
         self.body.add(self.side_frame, weight=0)
         self.body.add(self.list_frame, weight=1)
-        # optional speed graph (View menu)
-        self.gframe = ttk.Frame(root)
-        self.gframe.grid(row=3, column=0, sticky="ew", padx=4, pady=(2, 0))
-        self.gtitle = ttk.Label(self.gframe, text="", anchor="w")
+        # ---- the segment map of the selected download (a slim strip under the list; View > Segment map)
+        self.gframe = ttk.Frame(root, padding=(px(12), px(2), px(12), px(4)))
+        self.gframe.grid(row=3, column=0, sticky="ew")
+        self.gtitle = ttk.Label(self.gframe, text="", style="Small.TLabel", anchor="w")
         self.gtitle.pack(fill="x")
-        self.gcv = tk.Canvas(self.gframe, height=110, bg=PAL["graph_bg"], highlightthickness=1, highlightbackground=PAL["border"])
-        self.gcv.pack(fill="x")
-        self.mapcv = tk.Canvas(self.gframe, height=16, bg=PAL["map_bg"], highlightthickness=0)
-        self.mapcv.pack(fill="x", pady=(4, 0))
-        # status bar
-        self.status = ttk.Label(root, text="", anchor="w", relief="sunken", padding=(6, 2))
+        self.mapcv = tk.Canvas(self.gframe, height=px(12), bg=p["map_bg"], highlightthickness=0)
+        self.mapcv._keep_bg = True
+        self.mapcv.pack(fill="x", pady=(px(3), 0))
+        # ---- status bar
+        self.status = ttk.Label(root, text="", anchor="w", style="Status.TLabel", padding=(px(14), px(6)))
         self.status.grid(row=4, column=0, sticky="ew")
         self.apply_layout()
+        self.refresh_visuals()
+        root.bind("<Configure>", lambda e: self.after_idle_once(self._fit_toolbar) if e.widget is root else None, add="+")
+
+    def after_idle_once(self, fn):
+        """Run fn once after the pending events, however many times this is asked for in between (scrolling, resizing, dragging)."""
+        if fn not in self._idle:
+            self._idle[fn] = self.root.after(60, lambda: (self._idle.pop(fn, None), fn()))
+
+    def refresh_visuals(self):
+        """Everything that carries a colour or a picture and was built before the palette changed: called after every theme switch."""
+        p, th = self.theme.p, self.theme
+        self._status_imgs = {k: th.icon(k, 18) for k in ("st_done", "st_active", "st_paused", "st_error", "st_queued", "st_wait")}
+        self._row_cache.clear()
+        for tag, kw in (("odd", {"background": p["zebra"]}), ("hover", {"background": p["hover"]}), ("error", {"foreground": p["danger"]}),
+                        ("threat", {"foreground": p["danger"]})):
+            self.tree.tag_configure(tag, **kw)
+        self.paint_menubar()
+        self.paint_search()
+        self.theme_btn.configure(image=th.icon("sun" if p["mode"] == "dark" else "moon", 20, tone="icon"))
+        self.search_icon.configure(image=th.icon("search", 16, tone="muted"))
+        self.theme_var.set(self.mgr.settings.get("theme", "dark") if self.mgr.settings.get("skin", "default") == "default" else self.theme_var.get())
+        self.mapcv.configure(bg=p["map_bg"])
+        self.rebuild_toolbar()
+        self.rebuild_side()
+        self.refresh_menu_icons()
+        self.draw_list()
+        self.redraw_segments()
+        self._elide_all()
+
+    def paint_search(self):
+        p = self.theme.p
+        focus = self.root.focus_get() is self.search_entry
+        self.search_box.configure(bg=p["surface"], highlightbackground=p["border_strong"], highlightcolor=p["accent"], highlightthickness=1)
+        self.search_box.configure(highlightbackground=p["accent"] if focus else p["border_strong"])
+        self.search_icon.configure(bg=p["surface"])
+        self.search_entry.configure(bg=p["surface"], fg=p["muted"] if self._ph else p["fg"], insertbackground=p["fg"], selectbackground=p["accent_soft"], selectforeground=p["fg"], disabledbackground=p["surface"])
+
+    def _search_focus(self, focused):
+        if focused and self._ph:
+            self._ph = False
+            self.search.set("")
+        elif not focused and not self.search.get():
+            self._ph = True
+            self.search.set("Search downloads")
+        self.paint_search()
+
+    def _search_changed(self):
+        self.after_idle_once(self.draw_list)
 
     def apply_layout(self):
         if self.show_toolbar.get():
             self.toolbar.grid()
         else:
             self.toolbar.grid_remove()
-        if self.show_graph.get():
+        if self.show_map.get():
             self.gframe.grid()
         else:
             self.gframe.grid_remove()
@@ -6461,17 +6501,22 @@ class App:
             self.body.forget(self.side_frame)
 
     # ------------------------------------------------------------------ navigation tree
+    CAT_ICONS = {"general": "cat_general", "compressed": "cat_compressed", "documents": "cat_documents", "music": "cat_music", "video": "cat_video",
+                 "images": "cat_images", "programs": "cat_programs"}
+
     def rebuild_side(self):
         want = self.flt.get()
         self.side.delete(*self.side.get_children())
         self.side_map.clear()
+        self._side_imgs = {}
 
         def add(parent, iid, label, flt, icon):
-            self.side.insert(parent, "end", iid=iid, text="  " + label, image=self.icons[icon], open=True)
+            self._side_imgs[iid] = self.icon(icon, 18)
+            self.side.insert(parent, "end", iid=iid, text=" " + label, values=("",), image=self._side_imgs[iid], open=True)
             self.side_map[iid] = (label, flt)
         add("", "all", "All Downloads", "all", "t_all")
         for n, c in enumerate(self.mgr.settings["categories"]):
-            add("all", f"c:{n}", c["name"], "cat:" + c["name"], "t_folder")
+            add("all", f"c:{n}", c["name"], "cat:" + c["name"], self.CAT_ICONS.get(c["name"].strip().lower(), "t_folder"))
         add("", "unfinished", "Unfinished", "unfinished", "t_unfinished")
         add("", "finished", "Finished", "finished", "t_finished")
         add("", "projects", "Grabber projects", "projects", "t_grabber")
@@ -6479,7 +6524,7 @@ class App:
             add("projects", f"p:{n}", p, "project:" + p, "t_folder")
         add("", "queues", "Queues", "queues", "t_queue")
         for n, q in enumerate(self.mgr.settings["queues"]):
-            add("queues", f"q:{n}", q, "queue:" + q, "t_queue")
+            add("queues", f"q:{n}", q, "queue:" + q, "t_queue_item")
         iid = next((i for i, (_, f) in self.side_map.items() if f == want), "all")
         self.flt.set(self.side_map[iid][1])
         self._select_side(iid)
@@ -6493,7 +6538,8 @@ class App:
     def update_side(self):
         for iid, (label, f) in self.side_map.items():
             n = sum(matches_filter(d, f) for d in self.mgr.items)
-            self.side.item(iid, text=f"  {label} ({n})")
+            if self.side.set(iid, "n") != str(n):   # only touch rows whose count changed
+                self.side.set(iid, "n", n)
 
     def on_side(self, _=None):
         sel = self.side.selection()
@@ -6509,31 +6555,156 @@ class App:
         self.sort = (col, (not rev) if (toggle and col == old and col) else False)
         for key, title, _ in COLUMNS:
             arrow = (" \u25b2" if not self.sort[1] else " \u25bc") if key == self.sort[0] else ""
-            self.tree.heading(key, text=title + arrow)
+            self.tree.heading("#0" if key == "name" else key, text=title + arrow)
+            if key == "name":
+                self.tree.heading("name", text=title + arrow)
         self.draw_list()
 
     def row_values(self, d, qpos):
         return (d.label, qpos.get(id(d), ""), human(d.size) if d.size > 0 else "", status_text(d), fmt_left(d.eta_sec),
                 fmt_rate(d.speed) if d.status in ACTIVE else "", fmt_when(d.last_try), d.desc)
 
+    STATUS_ICONS = {"Completed": "st_done", "Downloading": "st_active", "Connecting": "st_active", "Paused": "st_paused", "Error": "st_error", "Queued": "st_queued"}
+
+    def _search_hit(self, d, q):
+        return q in d.label.lower() or q in (d.url or "").lower() or q in (d.desc or "").lower()
+
+    def _name_px(self):
+        try:
+            return max(self.px(40), int(self.tree.column("#0", "width")) - self.px(40))   # minus the status icon and the cell padding
+        except (tk.TclError, ValueError):
+            return self.px(200)
+
+    def _elide(self, text, width):
+        """`text` cut to `width` pixels with an ellipsis (Tk would just clip it at the cell edge). Results are cached per width."""
+        key = (text, width)
+        hit = self._elide_cache.get(key)
+        if hit is not None:
+            return hit
+        font = self.theme.fonts["body"]
+        if font.measure(text) <= width:
+            out = text
+        else:
+            lo, hi = 1, len(text)
+            while lo < hi:   # the longest prefix that still fits together with the ellipsis
+                mid = (lo + hi + 1) // 2
+                if font.measure(text[:mid].rstrip() + "\u2026") <= width:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            out = text[:lo].rstrip() + "\u2026"
+        if len(self._elide_cache) > 40000:
+            self._elide_cache.clear()
+        self._elide_cache[key] = out
+        return out
+
+    def _elide_all(self):
+        w = self._name_px()
+        if w != self._name_w:
+            self._name_w = w
+            self._row_cache.clear()
+            self.draw_list()
+
+    def _tree_resized(self, e=None):
+        self.after_idle_once(self._elide_all)
+        self.after_idle_once(self._place_bars)
+
+    def _yscrolled(self, a, b):
+        self.vsb.set(a, b)
+        self.after_idle_once(self._place_bars)
+
+    def _xscrolled(self, a, b):
+        if float(a) <= 0.0 and float(b) >= 1.0:   # everything fits: no horizontal bar
+            self.hsb.grid_remove()
+        else:
+            self.hsb.grid()
+        self.hsb.set(a, b)
+        self.after_idle_once(self._place_bars)
+
+    def _row_hover(self, e):
+        iid = (self.tree.identify_row(e.y) if e else "") or None
+        if iid == self._hover_row:
+            return
+        old, self._hover_row = self._hover_row, iid
+        for r in (old, iid):
+            if r and self.tree.exists(r) and r in self._row_cache:
+                self.tree.item(r, tags=self._row_cache[r][2] + (("hover",) if r == self._hover_row else ()))
+
     def draw_list(self):
         qpos = queue_positions(self.mgr.items)
-        rows = [(i, d) for i, d in enumerate(self.mgr.items) if matches_filter(d, self.flt.get())]
+        q = "" if self._ph else self.search.get().strip().lower()
+        flt = self.flt.get()
+        rows = [(i, d) for i, d in enumerate(self.mgr.items) if matches_filter(d, flt) and (not q or self._search_hit(d, q))]
         col, rev = self.sort
         if col:
             rows.sort(key=lambda t: sort_key(t[1], col, qpos), reverse=rev)
         ids = [str(i) for i, _ in rows]
-        if list(self.tree.get_children()) == ids:  # same rows: update in place, so selection and scroll position stay
-            for i, d in rows:
-                self.tree.item(str(i), values=self.row_values(d, qpos))
-            return
+        same = list(self.tree.get_children()) == ids   # same rows in the same order: update in place, so selection and scroll position stay
         sel = self.tree.selection()
-        self.tree.delete(*self.tree.get_children())
-        for i, d in rows:
-            self.tree.insert("", "end", iid=str(i), values=self.row_values(d, qpos))
-        for i in sel:
-            if self.tree.exists(i):
-                self.tree.selection_add(i)
+        if not same:
+            self.tree.delete(*self.tree.get_children())
+            self._row_cache.clear()
+        width, hot, imgs, bars = self._name_px(), self._hover_row, self._status_imgs, {}
+        for n, (i, d) in enumerate(rows):
+            iid, vals = str(i), self.row_values(d, qpos)
+            icon = self.STATUS_ICONS.get(d.status, "st_wait")
+            bad = d.status == "Error" or (d.status == "Completed" and getattr(d, "scan", "") == "infected")
+            if bad and d.status == "Completed":
+                icon = "st_error"
+            base = (("odd",) if n % 2 else ()) + (("error",) if bad else ())
+            key = (vals, icon, base, self._elide(vals[0], width))
+            if not same:
+                self.tree.insert("", "end", iid=iid, text=" " + key[3], values=vals, image=imgs[icon], tags=base + (("hover",) if iid == hot else ()))
+            elif self._row_cache.get(iid) != key:
+                self.tree.item(iid, text=" " + key[3], values=vals, image=imgs[icon], tags=base + (("hover",) if iid == hot else ()))
+            self._row_cache[iid] = key
+            if d.status != "Completed" and d.size > 0 and d.done > 0:   # a thin progress bar under the status text
+                tone = {"Downloading": "accent", "Connecting": "accent", "Error": "danger"}.get(d.status, "muted")
+                bars[iid] = (max(0.0, min(1.0, d.percent / 100.0)), tone, n % 2 == 1)
+        if not same:
+            for i in sel:
+                if self.tree.exists(i):
+                    self.tree.selection_add(i)
+        self._bars = bars
+        self.after_idle_once(self._place_bars)
+
+    # ---- progress bars: small canvases laid over the Status cells of the rows that are in progress (pooled, only for rows on screen)
+    def _make_bar(self):
+        cv = tk.Canvas(self.tree, highlightthickness=0, bd=0, cursor="arrow")
+        cv._keep_bg, cv._sig = True, None
+        for ev in ("<Button-1>", "<Double-1>", "<Button-3>", "<ButtonRelease-1>", "<Control-Button-1>"):
+            cv.bind(ev, lambda e, ev=ev, cv=cv: self.tree.event_generate(ev, x=cv.winfo_x() + e.x, y=cv.winfo_y() + e.y, rootx=e.x_root, rooty=e.y_root))
+        return cv
+
+    def _place_bars(self):
+        pool, used, p = self._bar_pool, 0, self.theme.p
+        selected = set(self.tree.selection())
+        for iid, (frac, tone, odd) in self._bars.items():
+            try:
+                bb = self.tree.bbox(iid, "status")
+            except tk.TclError:
+                bb = ""
+            if not bb:
+                continue
+            if used >= len(pool):
+                pool.append(self._make_bar())
+            cv, used = pool[used], used + 1
+            x, y, w, h = bb
+            pad, bh = self.px(10), max(3, self.px(4))
+            bw = max(self.px(16), w - 2 * pad)
+            bg = p["selected"] if iid in selected else p["hover"] if iid == self._hover_row else p["zebra"] if odd else p["surface"]
+            sig = (bw, bh, round(frac, 3), tone, bg, p["track"])
+            cv.place(x=x + pad, y=y + h - bh - self.px(4), width=bw, height=bh)
+            if cv._sig != sig:
+                cv._sig = sig
+                cv.configure(bg=bg)
+                cv.delete("all")
+                r, mid = bh / 2.0, bh / 2.0
+                cv.create_line(r, mid, bw - r, mid, width=bh, capstyle="round", fill=p["track"] if p["mode"] == "light" or tone != "muted" else p["track"])
+                if frac > 0:
+                    cv.create_line(r, mid, r + (bw - 2 * r) * frac, mid, width=bh, capstyle="round", fill=p[tone] if tone != "muted" else p["muted"])
+        for cv in pool[used:]:
+            cv.place_forget()
 
     def on_double_click(self, e):
         if not self.tree.identify_row(e.y):
@@ -6562,6 +6733,9 @@ class App:
                 self.tbtn[icon].state(["!disabled"] if fl[rule] else ["disabled"])
         for m, idx, rule in self.menu_rules:
             m.entryconfig(idx, state="normal" if fl[rule] else "disabled")
+            icon = self._menu_icons.get((str(m), idx))
+            if icon:
+                m.entryconfig(idx, image=self.theme.padded_icon(icon, 16) if fl[rule] else self.theme.padded_icon(icon, 16, color=self.theme.p["disabled"]))
 
     def tick_once(self):
         self.draw_list()
@@ -6707,7 +6881,7 @@ class App:
             ttk.Checkbutton(win, text="Also delete the downloaded file(s) from disk", variable=also).pack(anchor="w", padx=16)
         row = ttk.Frame(win)
         row.pack(pady=14)
-        ttk.Button(row, text="Yes", command=lambda: (out.update(ok=True), win.destroy())).pack(side="left", padx=6)
+        ttk.Button(row, text="Yes", style="Accent.TButton", command=lambda: (out.update(ok=True), win.destroy())).pack(side="left", padx=6)
         ttk.Button(row, text="No", command=win.destroy).pack(side="left", padx=6)
         win.grab_set()
         win.wait_window()
@@ -6873,7 +7047,7 @@ class App:
         win = tk.Toplevel(self.root)
         win.title("File hashes")
         win.transient(self.root)
-        ttk.Label(win, text=os.path.basename(d.path), font=("TkDefaultFont", 10, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 6))
+        ttk.Label(win, text=os.path.basename(d.path), font="AeroBold").grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 6))
         vals = {a: tk.StringVar(value="calculating...") for a in HASH_ALGOS}
         for r, a in enumerate(HASH_ALGOS, 1):
             ttk.Label(win, text={"md5": "MD5", "sha1": "SHA-1", "sha256": "SHA-256", "sha512": "SHA-512"}[a] + ":").grid(row=r, column=0, sticky="e", padx=(14, 6), pady=3)
@@ -6895,11 +7069,11 @@ class App:
             if not t:
                 return verdict.config(text="")
             if not cs:
-                return verdict.config(text="That isn't an MD5, SHA-1, SHA-256 or SHA-512 value.", foreground="#dc2626")
+                return verdict.config(text="That isn't an MD5, SHA-1, SHA-256 or SHA-512 value.", style="Danger.TLabel")
             if not res.get("h"):
-                return verdict.config(text="Still calculating...", foreground="#6b7280")
+                return verdict.config(text="Still calculating...", style="Muted.TLabel")
             same = res["h"].get(cs[0]) == cs[1]
-            verdict.config(text="MATCH - the file is intact." if same else "DOES NOT MATCH - the file differs from that value.", foreground="#16a34a" if same else "#dc2626")
+            verdict.config(text="MATCH - the file is intact." if same else "DOES NOT MATCH - the file differs from that value.", style="Success.TLabel" if same else "Danger.TLabel")
         want.trace_add("write", judge)
 
         def poll():
@@ -6941,7 +7115,7 @@ class App:
         ttk.Entry(hrow, textvariable=hv, width=58).pack(side="left")
         ttk.Button(hrow, text="Hashes...", command=lambda: self.hashes_dialog(d)).pack(side="left", padx=(6, 0))
         verdict = {"ok": "matched", "bad": "DID NOT MATCH", "missing": "could not be checked (file missing)"}.get(d.verified, "")
-        ttk.Label(win, foreground="#6b7280", text="MD5, SHA-1, SHA-256 or SHA-512. Checked automatically when the download finishes"
+        ttk.Label(win, style="Muted.TLabel", text="MD5, SHA-1, SHA-256 or SHA-512. Checked automatically when the download finishes"
                   + (f" - the last check {verdict}." if verdict else ".")).grid(row=len(rows) + 2, column=1, sticky="w")
         ttk.Entry(win, textvariable=desc, width=70).grid(row=len(rows), column=1, padx=(0, 14), pady=3)  # created last: it is the dialog's last text box
 
@@ -6956,7 +7130,7 @@ class App:
             self.draw_list()
         row = ttk.Frame(win)
         row.grid(row=len(rows) + 3, column=0, columnspan=2, pady=12)
-        ttk.Button(row, text="OK", command=ok).pack(side="left", padx=6)
+        ttk.Button(row, text="OK", style="Accent.TButton", command=ok).pack(side="left", padx=6)
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="left", padx=6)
 
     # ------------------------------------------------------------------ IDM-style windows: confirm, progress, complete
@@ -7087,7 +7261,7 @@ class App:
         ttk.Label(body, text="Save to:").grid(row=4, column=0, sticky="e", padx=(0, 8), pady=3)
         ttk.Entry(body, textvariable=folder, width=56).grid(row=4, column=1, columnspan=2, sticky="we", pady=3)
         ttk.Button(body, text="Browse...", command=lambda: folder.set(filedialog.askdirectory(parent=win, initialdir=folder.get()) or folder.get())).grid(row=4, column=3, sticky="w", padx=6)
-        ttk.Label(body, text="Nothing is downloaded until you click Start Download.", foreground="#6b7280").grid(row=5, column=1, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(body, text="Nothing is downloaded until you click Start Download.", style="Muted.TLabel").grid(row=5, column=1, columnspan=3, sticky="w", pady=(6, 0))
 
         def close():
             self.pending_urls.discard(url)
@@ -7111,7 +7285,7 @@ class App:
 
         row = ttk.Frame(win)
         row.pack(pady=(0, 12))
-        ttk.Button(row, text="Start Download", command=lambda: go(False)).pack(side="left", padx=6)
+        ttk.Button(row, text="Start Download", style="Accent.TButton", command=lambda: go(False)).pack(side="left", padx=6)
         ttk.Button(row, text="Download Later", command=lambda: go(True)).pack(side="left", padx=6)
         ttk.Button(row, text="Cancel", command=close).pack(side="left", padx=6)
         win.protocol("WM_DELETE_WINDOW", close)
@@ -7167,7 +7341,7 @@ class App:
             lab[k].grid(row=r, column=1, sticky="w", pady=1)
         bar = ttk.Progressbar(t1, maximum=100)
         bar.pack(fill="x", pady=(8, 4))
-        cv = tk.Canvas(t1, height=14, highlightthickness=0, background=PAL["graph_bg"])
+        cv = tk.Canvas(t1, height=14, highlightthickness=0, background=PAL["map_bg"])
         cv.pack(fill="x", pady=(0, 6))
         details = ttk.Frame(t1)
         details.pack(fill="both", expand=True)
@@ -7185,7 +7359,7 @@ class App:
         nb.add(t2, text="Speed Limiter")
         use, kb = tk.BooleanVar(value=d.limit_kb > 0), tk.IntVar(value=d.limit_kb or 100)
         spin = ttk.Spinbox(t2, from_=1, to=10_000_000, width=9, textvariable=kb)
-        lim_note = ttk.Label(t2, foreground="#6b7280")
+        lim_note = ttk.Label(t2, style="Muted.TLabel")
 
         def apply_limit(*_):
             try:
@@ -7363,7 +7537,7 @@ class App:
             pass
         head = ttk.Frame(top)
         head.pack(side="left", fill="x")
-        ttk.Label(head, text="Download complete", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        ttk.Label(head, text="Download complete", font="AeroHeading").pack(anchor="w")
         ttk.Label(head, text=f"{size_mb_bytes(nbytes)} downloaded").pack(anchor="w", pady=(2, 0))
         body = ttk.Frame(win, padding=(14, 6))
         body.pack(fill="x")
@@ -7375,11 +7549,11 @@ class App:
             e.grid(row=r, column=1, sticky="we", pady=3)
         if d.verified in ("ok", "bad", "missing"):
             algo = d.checksum.split(":")[0].upper()
-            msg, col = {"ok": (f"{algo} checksum verified - the file is intact.", "#16a34a"),
+            msg, col = {"ok": (f"{algo} checksum verified - the file is intact.", "Success.TLabel"),
                         "bad": (f"WARNING: the {algo} checksum does NOT match.\nExpected  {d.checksum.split(':')[1]}\nThe file   {d.actual_hash}\n"
-                                "The file may be damaged or have been tampered with.", "#dc2626"),
-                        "missing": ("The checksum couldn't be checked: the file is gone.", "#dc2626")}[d.verified]
-            ttk.Label(win, text=msg, foreground=col, wraplength=560, justify="left").pack(anchor="w", padx=14, pady=(2, 0))
+                                "The file may be damaged or have been tampered with.", "Danger.TLabel"),
+                        "missing": ("The checksum couldn't be checked: the file is gone.", "Danger.TLabel")}[d.verified]
+            ttk.Label(win, text=msg, style=col, wraplength=560, justify="left").pack(anchor="w", padx=14, pady=(2, 0))
         scan_lbl = ttk.Label(win, text="", wraplength=560, justify="left")
         scan_lbl.pack(anchor="w", padx=14, pady=(2, 0))
 
@@ -7388,12 +7562,12 @@ class App:
                 if not win.winfo_exists():
                     return
                 if d._scanning:
-                    scan_lbl.config(text="Scanning for viruses...", foreground=PAL["muted"])
+                    scan_lbl.config(text="Scanning for viruses...", style="Muted.TLabel")
                     win.after(500, show_scan)
                     return
                 if d.scan_info:
                     scan_lbl.config(text=d.scan_info + ("\nDon't open this file unless you are sure it is safe." if d.scan == "infected" else ""),
-                                    foreground={"clean": "#16a34a", "infected": "#dc2626", "error": "#d97706"}.get(d.scan, PAL["muted"]))
+                                    style={"clean": "Success.TLabel", "infected": "Danger.TLabel", "error": "Warning.TLabel"}.get(d.scan, PAL["muted"]))
                 else:
                     scan_lbl.pack_forget()
             except tk.TclError:
@@ -7453,7 +7627,7 @@ class App:
         ttk.Combobox(row, textvariable=cat, state="readonly", width=16, values=["Automatic"] + [c["name"] for c in self.mgr.settings["categories"]]).pack(side="left", padx=(4, 16))
         ttk.Label(row, text="Queue:").pack(side="left")
         ttk.Combobox(row, textvariable=que, state="readonly", width=22, values=self.mgr.settings["queues"]).pack(side="left", padx=4)
-        ttk.Label(win, text="Save to: " + self.folder.get(), foreground="#6b7280").pack(anchor="w", padx=14)
+        ttk.Label(win, text="Save to: " + self.folder.get(), style="Muted.TLabel").pack(anchor="w", padx=14)
         hv = tk.StringVar()
         hr = ttk.Frame(win)
         hr.pack(fill="x", padx=14, pady=(8, 0))
@@ -7483,11 +7657,11 @@ class App:
             if not later:
                 for d in added[:3]:  # a window per download, but not a screenful for a big batch
                     self.progress_window(d)
-        note = ttk.Label(win, text="", wraplength=620, justify="left", foreground="#6b7280")
+        note = ttk.Label(win, text="", wraplength=620, justify="left", style="Muted.TLabel")
         note.pack(anchor="w", padx=14, pady=(6, 0))
         btns = ttk.Frame(win)
         btns.pack(pady=(10, 14))
-        ttk.Button(btns, text="Start Download", command=lambda: go(False)).pack(side="left", padx=6)
+        ttk.Button(btns, text="Start Download", style="Accent.TButton", command=lambda: go(False)).pack(side="left", padx=6)
         ttk.Button(btns, text="Download Later", command=lambda: go(True)).pack(side="left", padx=6)
         ttk.Button(btns, text="Resolve link...", command=lambda: self.resolve_in_dialog(win, txt, note)).pack(side="left", padx=6)
         ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=6)
@@ -7535,7 +7709,7 @@ class App:
                 ttk.Checkbutton(kinds, text=c["name"], variable=checks[c["name"]]).pack(side="left", padx=8, pady=4)
         anyfile = tk.BooleanVar(value=False)
         ttk.Checkbutton(kinds, text="Any other file", variable=anyfile).pack(side="left", padx=8)
-        state = ttk.Label(win, text="Enter a page address and press Explore.", foreground="#6b7280")
+        state = ttk.Label(win, text="Enter a page address and press Explore.", style="Muted.TLabel")
         state.pack(anchor="w", padx=12)
         box = ttk.Frame(win)
         box.pack(fill="both", expand=True, padx=12, pady=4)
@@ -7600,11 +7774,11 @@ class App:
                 self.mgr.add(f["url"], self.folder.get(), self.conns.get(), queue=self.cur_queue(), project=name, later=later, referer=f["page"])
             state.config(text=f"Added {len(chosen)} download(s) to project '{name}'.")
             self.after_change()
-        btn = ttk.Button(top, text="Explore", command=explore)
+        btn = ttk.Button(top, text="Explore", style="Accent.TButton", command=explore)
         btn.grid(row=1, column=2, padx=6)
         ttk.Button(bottom, text="Close", command=win.destroy).pack(side="right")
         ttk.Button(bottom, text="Download Later", command=lambda: grab(True)).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Start Download", command=lambda: grab(False)).pack(side="right")
+        ttk.Button(bottom, text="Start Download", style="Accent.TButton", command=lambda: grab(False)).pack(side="right")
         ttk.Button(bottom, text="Select none", command=lambda: res.selection_set(())).pack(side="right", padx=12)
         ttk.Button(bottom, text="Select all", command=lambda: res.selection_set(res.get_children())).pack(side="right")
 
@@ -7695,7 +7869,7 @@ class App:
         ttk.Checkbutton(gen, text="Launch AeroGrab when I sign in to the computer", variable=gv["autostart"]).pack(anchor="w", pady=3)
         ttk.Checkbutton(gen, text="Check for a new version of AeroGrab when it starts (GitHub)", variable=gv["check_updates"]).pack(anchor="w", pady=3)
         ttk.Checkbutton(gen, text="Automatically start downloading URLs placed on the clipboard (links to files only)", variable=gv["clip_monitor"]).pack(anchor="w", pady=3)
-        ttk.Label(gen, wraplength=420, justify="left", foreground="#6b7280",
+        ttk.Label(gen, wraplength=420, justify="left", style="Muted.TLabel",
                   text="The tray icon needs the optional add-on:  pip install pystray pillow  (Windows and Linux; not macOS).").pack(anchor="w", pady=(10, 0))
 
         sv = ttk.Frame(nb, padding=14)
@@ -7786,7 +7960,7 @@ class App:
         ttk.Checkbutton(cn, text="Retry failed downloads automatically (network errors, busy servers)", variable=retry_on).grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 2))
         ttk.Label(cn, text="Give up after this many retries:").grid(row=5, column=0, sticky="w", pady=5)
         ttk.Spinbox(cn, from_=1, to=50, width=9, textvariable=retry_n).grid(row=5, column=1, padx=10)
-        ttk.Label(cn, wraplength=440, justify="left", foreground="#6b7280",
+        ttk.Label(cn, wraplength=440, justify="left", style="Muted.TLabel",
                   text="Retries wait longer each time (15 s, 30 s, 1 min ...) and pause while the internet is down. Wrong passwords and missing files are never retried.").grid(row=6, column=0, columnspan=2, sticky="w")
 
         timeout, retries = tk.IntVar(value=int(st.get("timeout") or 30)), tk.IntVar(value=int(st.get("retries", 6)))
@@ -7836,7 +8010,7 @@ class App:
             poll()
         ttk.Button(px, text="Test proxy", command=try_proxy).grid(row=6, column=0, sticky="w")
         ptest.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        ttk.Label(px, wraplength=440, justify="left", foreground="#6b7280",
+        ttk.Label(px, wraplength=440, justify="left", style="Muted.TLabel",
                   text="HTTP proxies carry HTTP and HTTPS downloads. SOCKS5 looks names up on the proxy. FTP, local addresses and (for ffmpeg) SOCKS bypass this setting. "
                        "The password is stored in AeroGrab's settings file, readable only by you.").grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -7891,10 +8065,10 @@ class App:
         # ---- appearance
         ap = ttk.Frame(nb, padding=14)
         nb.add(ap, text="Appearance")
-        theme = tk.StringVar(value={"light": "Light", "dark": "Dark"}.get(st.get("theme"), "System"))
+        theme = tk.StringVar(value={"light": "Light", "dark": "Dark", "system": "System"}.get(st.get("theme", "dark"), "Dark"))
         accent = tk.StringVar(value=valid_hex(st.get("accent")) or DEFAULT_ACCENT)
         ttk.Label(ap, text="Theme:").grid(row=0, column=0, sticky="w", pady=6)
-        ttk.Combobox(ap, textvariable=theme, state="readonly", width=12, values=["System", "Light", "Dark"]).grid(row=0, column=1, sticky="w", padx=10)
+        ttk.Combobox(ap, textvariable=theme, state="readonly", width=12, values=["Dark", "Light", "System"]).grid(row=0, column=1, sticky="w", padx=10)
         ttk.Label(ap, text="Accent colour:").grid(row=1, column=0, sticky="w", pady=6)
         sw = ttk.Frame(ap)
         sw.grid(row=1, column=1, sticky="w", padx=10)
@@ -7922,9 +8096,9 @@ class App:
         ttk.Combobox(ap, textvariable=skin, state="readonly", width=16, values=[n.title() for n in skin_names()]).grid(row=4, column=1, sticky="w", padx=10, pady=(14, 6))
         ttk.Label(ap, text="Toolbar:").grid(row=5, column=0, sticky="w", pady=6)
         ttk.Button(ap, text="Customize toolbar...", command=self.customize_toolbar).grid(row=5, column=1, sticky="w", padx=10)
-        ttk.Label(ap, wraplength=440, justify="left", foreground="#6b7280",
-                  text="System follows your operating system's light / dark setting. A skin is a complete colour scheme: it replaces Theme (and its own accent colour "
-                       "is used unless you pick one above). Changes apply when you press OK.").grid(row=6, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        ttk.Label(ap, wraplength=440, justify="left", style="Muted.TLabel",
+                  text="Dark and Light are the two AeroGrab Premium themes; System follows your operating system's light / dark setting. You can also switch from the sun / moon button in the header or from View > Theme. "
+                       "A skin is an alternative colour scheme: it replaces Theme (and its own accent colour is used unless you pick one above). Changes apply when you press OK.").grid(row=6, column=0, columnspan=2, sticky="w", pady=(14, 0))
 
         # ---- sounds
         so = ttk.Frame(nb, padding=14)
@@ -7948,7 +8122,7 @@ class App:
         ttk.Entry(qr, textvariable=q_from, width=6).pack(side="left", padx=4)
         ttk.Label(qr, text="to").pack(side="left")
         ttk.Entry(qr, textvariable=q_to, width=6).pack(side="left", padx=4)
-        ttk.Label(so, wraplength=440, justify="left", foreground="#6b7280",
+        ttk.Label(so, wraplength=440, justify="left", style="Muted.TLabel",
                   text="When several things happen at once only the most important sound plays. Leave a file box empty to use the system sound (Windows: .wav files only).").grid(row=10, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
         # ---- extras: antivirus, smart links, clipboard history, floating widget
@@ -7966,10 +8140,10 @@ class App:
 
         def av_status(*_):
             f = find_av(av_names.get(av_eng.get(), "auto"))
-            av_det.config(text=f"Found: {AV_NAMES[f[0]]}  ({f[1]})" if f else "No antivirus found. Windows Defender and ClamAV are the two AeroGrab can use.", foreground="#16a34a" if f else "#d97706")
+            av_det.config(text=f"Found: {AV_NAMES[f[0]]}  ({f[1]})" if f else "No antivirus found. Windows Defender and ClamAV are the two AeroGrab can use.", style="Success.TLabel" if f else "Warning.TLabel")
         av_eng.trace_add("write", av_status)
         av_status()
-        ttk.Label(ex, wraplength=440, justify="left", foreground="#6b7280",
+        ttk.Label(ex, wraplength=440, justify="left", style="Muted.TLabel",
                   text="AeroGrab includes no antivirus engine. It runs Windows Defender (MpCmdRun.exe -Scan) or ClamAV (clamscan) and shows the verdict in the Download complete window. "
                        "It only checks: nothing is deleted or quarantined by AeroGrab.").pack(anchor="w", pady=(2, 0))
         ttk.Separator(ex).pack(fill="x", pady=10)
@@ -8056,7 +8230,7 @@ class App:
             self.flash("Options saved")
         row = ttk.Frame(win)
         row.pack(pady=(4, 12))
-        ttk.Button(row, text="OK", command=ok).pack(side="left", padx=6)
+        ttk.Button(row, text="OK", style="Accent.TButton", command=ok).pack(side="left", padx=6)
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="left", padx=6)
 
     def speed_dialog(self):
@@ -8078,7 +8252,7 @@ class App:
             win.destroy()
         r2 = ttk.Frame(win)
         r2.pack(pady=14)
-        ttk.Button(r2, text="OK", command=ok).pack(side="left", padx=6)
+        ttk.Button(r2, text="OK", style="Accent.TButton", command=ok).pack(side="left", padx=6)
         ttk.Button(r2, text="Cancel", command=win.destroy).pack(side="left", padx=6)
 
     def scheduler_dialog(self):
@@ -8107,7 +8281,7 @@ class App:
             st.update(sched_on=on.get(), start=a.get().strip(), stop=b.get().strip(), after=[k for k, x in AFTER.items() if x == after.get()][0])
             self.mgr.save_settings()
             win.destroy()
-        ttk.Button(win, text="Save", command=ok).pack(pady=12)
+        ttk.Button(win, text="Save", style="Accent.TButton", command=ok).pack(pady=12)
 
     def countdown(self, sec=60):
         win = tk.Toplevel(self.root)
@@ -8170,7 +8344,7 @@ class App:
         ttk.Button(fr, text="Browse...", command=lambda: fold.set(filedialog.askdirectory(parent=win) or fold.get())).pack(side="left", padx=4)
         field("Websites (comma separated, e.g. school.example): these always go here", sites, "sites")
         ttk.Checkbutton(right, text="Automatically save downloads into their category's folder", variable=auto).pack(anchor="w", pady=(6, 0))
-        ttk.Label(right, text="Override one download any time: right-click it > Move to category.", foreground="#6b7280").pack(anchor="w")
+        ttk.Label(right, text="Override one download any time: right-click it > Move to category.", style="Muted.TLabel").pack(anchor="w")
 
         def clean_site(x):
             x = re.sub(r"^https?://", "", x.strip().lower())
@@ -8267,7 +8441,7 @@ class App:
         row = ttk.Frame(right)
         row.pack(anchor="e", pady=(14, 0), fill="x")
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
-        ttk.Button(row, text="OK", command=ok).pack(side="right", padx=6)
+        ttk.Button(row, text="OK", style="Accent.TButton", command=ok).pack(side="right", padx=6)
         fill()
         show(0)
 
@@ -8352,9 +8526,9 @@ class App:
             st["extension_ids"] = good
             self.mgr.save_settings()
             register()
-        ttk.Button(r2, text="Save", command=save_ids).pack(side="left", padx=6)
+        ttk.Button(r2, text="Save", style="Accent.TButton", command=save_ids).pack(side="left", padx=6)
         ttk.Separator(win).pack(fill="x", padx=14, pady=10)
-        ttk.Label(win, foreground="#6b7280", wraplength=560, justify="left", text=(
+        ttk.Label(win, style="Muted.TLabel", wraplength=560, justify="left", text=(
             f"Advanced - manual pairing, only if automatic registration can't be used. Server: 127.0.0.1:{self.port}"
             + ("" if self.api_srv else " (PORT BUSY: restart with  python aerograb.py -p 6801)") + ". Pairing token:")).pack(padx=14, anchor="w")
         r3 = ttk.Frame(win)
@@ -8387,7 +8561,7 @@ QUEUES AND THE SCHEDULER
   selected in the left pane (the main queue by default). Downloads > Scheduler restricts downloading to a time window.
 
 SPEED
-  Downloads > Speed limiter caps the total speed. View > Speed graph shows the live chart and the segment map.
+  Downloads > Speed limiter caps the total speed. View > Segment map shows which parts of the selected download each connection has filled.
 
 EXTRAS
   Antivirus: finished files are checked by Windows Defender or ClamAV if one is installed (AeroGrab has no engine of its own); the
@@ -8410,7 +8584,34 @@ Ctrl+A        Select all downloads
 Ctrl+C        Copy the address of the selected downloads""", width=60, height=12)
 
     def about_dialog(self):
-        self.info("About AeroGrab", f"AeroGrab {__version__}\n\nA free, open-source download manager:\nsegmented downloads, queues, categories, video (HLS),\nbrowser integration and a system tray icon.\n\nMIT License. No ads, no tracking, nothing to buy.")
+        """Branded About window: logo, version, what AeroGrab is, the runtime it runs on, and the licences."""
+        px = self.px
+        win = tk.Toplevel(self.root)
+        win.title(f"About {APP_NAME}")
+        win.resizable(False, False)
+        win.transient(self.root)
+        win._logo = tk.PhotoImage(data=BRAND_B64[64])
+        body = ttk.Frame(win, padding=(px(32), px(26), px(32), px(14)))
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, image=win._logo).pack()
+        ttk.Label(body, text=APP_NAME, style="Title.TLabel").pack(pady=(px(10), 0))
+        ttk.Label(body, text=f"Version {__version__}", style="Muted.TLabel").pack()
+        ttk.Label(body, text=APP_TAGLINE, style="Accent.TLabel").pack(pady=(px(2), px(12)))
+        ttk.Label(body, justify="center", wraplength=px(380),
+                  text="A free, open-source download manager: segmented downloads, queues, categories, video (HLS), browser integration and a system tray icon.\n\n"
+                       "MIT License. No ads, no tracking, nothing to buy.").pack()
+        ttk.Separator(body, orient="horizontal").pack(fill="x", pady=px(14))
+        ttk.Label(body, justify="center", style="Small.TLabel", wraplength=px(380),
+                  text=f"Python {platform.python_version()}  \u00b7  Tk {tk.TkVersion}  \u00b7  {platform.system()} {platform.release()}\n"
+                       "Icons: Lucide (lucide.dev), ISC License").pack()
+        row = ttk.Frame(win, padding=(px(16), px(4), px(16), px(16)))
+        row.pack(fill="x")
+        ttk.Button(row, text="Close", style="Accent.TButton", command=win.destroy).pack(side="right")
+        ttk.Button(row, text="Licence...", command=self.license_dialog).pack(side="right", padx=(0, px(8)))
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.bind("<Return>", lambda e: win.destroy())
+        _center_over(win, self.root)
+        win.focus_set()
 
     def registration_dialog(self):
         self.info("Registration", "AeroGrab is free and open-source software (MIT License).\n\nThere is nothing to register or buy: no serial number, no trial period, "
@@ -8421,9 +8622,32 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
 
     # ------------------------------------------------------------------ system tray
     def show_window(self):
-        self.root.deiconify()
-        self.root.lift()
-        self.root.focus_force()
+        """Restore (from the tray or the taskbar) and focus the main window. Downloads are not touched."""
+        r = self.root
+        try:
+            r.deiconify()
+            if r.state() == "iconic":
+                r.state("normal")
+            r.lift()
+            r.attributes("-topmost", True)  # Windows won't always hand focus to a background app: a brief topmost flip brings it forward
+            r.after(300, lambda: r.winfo_exists() and r.attributes("-topmost", False))
+            r.focus_force()
+        except tk.TclError:
+            return
+        if os.name == "nt":
+            try:
+                import ctypes
+                u = ctypes.windll.user32
+                u.GetParent.restype, u.GetParent.argtypes = ctypes.c_void_p, [ctypes.c_void_p]
+                u.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+                u.SetForegroundWindow(u.GetParent(r.winfo_id()) or r.winfo_id())
+            except Exception:
+                pass
+
+    def handle_ipc(self, msg):
+        """A later launch of AeroGrab asked this instance to come forward ('ping' = a background start: browser / sign-in)."""
+        if msg.get("cmd") == "show":
+            self.show_window()
 
     def set_tray(self, on):
         """Start or stop the tray icon. Returns an error message ('' if all is well)."""
@@ -8455,6 +8679,9 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
             self.on_close()
 
     def poll_tray(self):
+        if self.single:
+            for m in self.single.poll():
+                self.handle_ipc(m)
         if self.tray:
             for c in self.tray.poll():
                 self.handle_cmd(c)
@@ -8474,18 +8701,19 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
                 self.tray.notify(f"Failed: {d.label}\n{d.error[:120]}")
 
     # ------------------------------------------------------------------ live refresh
-    def redraw_graph(self):
+    def redraw_segments(self):
+        """The segment map under the list: which parts of the selected download each connection has filled."""
+        if not self.show_map.get():
+            return
         sel = self.selected()
         if len(sel) == 1:
             d = sel[0]
-            what = d.label[:50]
-            extra = (f" | {d.segs_done}/{d.total} parts" if isinstance(d, HlsDownload) else f" | {len(d.segs)} segments" if d.segs else "")
-            samples, cells = d.hist, d.segment_map()
+            extra = (f"  \u00b7  {d.segs_done}/{d.total} parts" if isinstance(d, HlsDownload) else f"  \u00b7  {len(d.segs)} segments" if d.segs else "")
+            self.gtitle.config(text=f"Segments  \u00b7  {d.label[:60]}{extra}")
+            cells = d.segment_map()
         else:
-            what, extra, samples, cells = "All downloads", "", self.mgr.hist, []
-        now, peak, avg = graph_stats(samples)
-        self.gtitle.config(text=f"Speed - {what}{extra}      Now {human(now)}/s     Peak {human(peak)}/s     Avg {human(avg)}/s (last 60 s)")
-        draw_graph(self.gcv, samples)
+            self.gtitle.config(text="Segments")
+            cells = []
         draw_segmap(self.mapcv, cells)
 
     def update_toolbar(self):
@@ -8523,9 +8751,8 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
         api_txt = f"Browser API: listening on 127.0.0.1:{self.port}" if self.api_srv else f"Browser API: PORT {self.port} BUSY"
         sch = f" | Schedule {st['start']}-{st['stop']}: {'running' if self.mgr.in_window() else 'waiting'}" if st["sched_on"] else ""
         note = f" | {self.note[0]}" if time.time() < self.note[1] else ""
-        self.status.config(text=f"{len(self.mgr.items)} downloads | {human(total)}/s | {api_txt}{sch} | Saving to: {self.folder.get()}{note}")
-        if self.show_graph.get():
-            self.redraw_graph()
+        self.status.config(text=f"{len(self.mgr.items)} downloads   \u00b7   {human(total)}/s   \u00b7   {api_txt}{sch.replace(' | ', '   \u00b7   ')}   \u00b7   Saving to: {self.folder.get()}{note.replace(' | ', '   \u00b7   ')}")
+        self.redraw_segments()
         if int(time.time()) % 3 == 0:
             self.mgr.save()
         self.root.after(500, self.tick)
@@ -8534,37 +8761,57 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
     STYLE_LABELS = {"both": "Icons and text", "icons": "Icons only", "text": "Text only"}
     SIZE_LABELS = {"large": "Large icons", "small": "Small icons"}
 
+    TOOL_TIPS = {"add": "Add a new download (Ctrl+N)", "resume": "Resume the selected downloads (Ctrl+R)", "stop": "Stop the selected downloads (Ctrl+S)",
+                 "stopall": "Stop every active download", "delete": "Delete the selected downloads (Del)", "delc": "Remove all completed downloads from the list",
+                 "options": "Open AeroGrab options", "scheduler": "Choose when downloads are allowed to run", "startq": "Start the queue selected in the left pane",
+                 "stopq": "Stop the queue selected in the left pane", "grabber": "Find downloadable files on a web page", "browser": "Connect AeroGrab to your web browser",
+                 "scan": "Scan the selected finished files for viruses", "clip": "Links you copied (Clipboard history)", "widget": "Show or hide the floating speed meter"}
+
     def rebuild_toolbar(self):
-        """(Re)draw the toolbar from the settings: which buttons, in what order, icons and/or text, large or small."""
-        st = self.mgr.settings
-        for w in self.toolbar.winfo_children():
+        """(Re)draw the toolbar from the settings: which buttons, in what order, icons and/or text, large or small. Also called after a theme change (icons are re-tinted)."""
+        st, px = self.mgr.settings, self.px
+        for w in self.toolbar_inner.winfo_children():
             w.destroy()
         self.tbtn = {}
         style = st.get("toolbar_style") if st.get("toolbar_style") in TOOLBAR_STYLES else "both"
+        if style == "both" and self._tb_compact:   # not enough width for the labels (small screen or high DPI scaling): icons only, tooltips explain them
+            style = "icons"
         size = st.get("toolbar_size") if st.get("toolbar_size") in TOOLBAR_SIZES else "large"
-        icons = self.icons_small if size == "small" else self.icons
+        isz, dim = (24 if size == "large" else 18), self.theme.p["disabled"]
         for bid in toolbar_layout(st.get("toolbar_items"), DEFAULT_TOOLBAR, TOOLBAR_ACTIONS):
             if bid == "|":
-                ttk.Separator(self.toolbar, orient="vertical").pack(side="left", fill="y", padx=5, pady=3)
+                ttk.Separator(self.toolbar_inner, orient="vertical").pack(side="left", fill="y", padx=px(6), pady=px(8))
                 continue
             icon, label, meth = TOOLBAR_ACTIONS[bid]
+            pics = (self.icon(icon, isz), "disabled", self.icon(icon, isz, color=dim))
             if style == "text":
                 kw = {"text": label}
             elif style == "icons":
-                kw = {"image": icons[icon]}
+                kw = {"image": pics}
             else:
-                kw = {"text": label, "image": icons[icon], "compound": "top" if size == "large" else "left"}
-            b = ttk.Button(self.toolbar, style="Toolbutton", command=getattr(self, meth), **kw)
+                kw = {"text": label, "image": pics, "compound": "top" if size == "large" else "left"}
+            b = ttk.Button(self.toolbar_inner, style="Tool.TButton", command=getattr(self, meth), **kw)
             b.pack(side="left", padx=1)
             b.bind("<Button-3>", self._toolbar_menu)
             b.bind("<Control-Button-1>", self._toolbar_menu)
-            if style == "icons":
-                Tip(b, label)
+            Tip(b, self.TOOL_TIPS.get(bid, label))
             self.tbtn[bid] = b
-        for ev in ("<Button-3>", "<Control-Button-1>"):
-            self.toolbar.bind(ev, self._toolbar_menu)
+        for w in (self.toolbar, self.toolbar_inner):
+            for ev in ("<Button-3>", "<Control-Button-1>"):
+                w.bind(ev, self._toolbar_menu)
+        if style == "both" and not self._tb_compact:
+            self.toolbar_inner.update_idletasks()
+            self._tb_full_w = self.toolbar_inner.winfo_reqwidth()   # what the labelled toolbar needs, to know when it fits again
         if hasattr(self, "tree"):
             self.update_toolbar()
+
+    def _fit_toolbar(self):
+        if self.mgr.settings.get("toolbar_style") not in (None, "both"):
+            return
+        compact = self.root.winfo_width() < self._tb_full_w + self.px(24)
+        if compact != self._tb_compact and self._tb_full_w > 1:
+            self._tb_compact = compact
+            self.rebuild_toolbar()
 
     def _toolbar_menu(self, e):
         m = tk.Menu(self.root, tearoff=0)
@@ -8659,7 +8906,7 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
             win.destroy()
         row = ttk.Frame(win)
         row.pack(pady=12)
-        ttk.Button(row, text="OK", command=ok).pack(side="left", padx=6)
+        ttk.Button(row, text="OK", style="Accent.TButton", command=ok).pack(side="left", padx=6)
         ttk.Button(row, text="Reset to default", command=reset).pack(side="left", padx=6)
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="left", padx=6)
         refill(0)
@@ -8956,7 +9203,7 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
         win.title("Update available")
         win.transient(self.root)
         win.resizable(True, True)
-        ttk.Label(win, text=f"AeroGrab {info['version']} is available", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", padx=14, pady=(14, 0))
+        ttk.Label(win, text=f"AeroGrab {info['version']} is available", font="AeroHeading").pack(anchor="w", padx=14, pady=(14, 0))
         how = ({"portable": "The portable version will be downloaded and replaced in place; AeroGrab then restarts by itself.",
                 "installed": "The installer will be downloaded and run for you; AeroGrab then restarts by itself."}[kind] if auto
                else "This copy of AeroGrab can't update itself, so the download page will open in your browser.")
@@ -8978,7 +9225,7 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
         bar = ttk.Progressbar(win, mode="determinate", maximum=100)
         row = ttk.Frame(win)
         row.pack(side="bottom", pady=12)
-        now = ttk.Button(row, text="Update now" if auto else "Open download page")
+        now = ttk.Button(row, text="Update now", style="Accent.TButton" if auto else "Open download page")
         later = ttk.Button(row, text="Later")
         now.pack(side="left", padx=6)
         later.pack(side="left", padx=6)
@@ -9050,6 +9297,8 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
     # ------------------------------------------------------------------ closing and starting
     def on_close(self):  # really quit
         self.mgr.shutdown()
+        if self.single:
+            self.single.close()  # give the instance lock + pipe back before the window goes
         self.root.destroy()
 
     def request_close(self):  # the window's X button: hide to the tray if there is one
@@ -9079,10 +9328,12 @@ Ctrl+C        Copy the address of the selected downloads""", width=60, height=12
         self.root.mainloop()
         if self.tray:
             self.tray.stop()
+        if self.single:
+            self.single.close()
 
 
-def run_gui(port=API_PORT, minimized=False):
-    App(port, minimized).run()
+def run_gui(port=API_PORT, minimized=False, single=None):
+    App(port, minimized, single).run()
 
 
 # ============================== CLI ==============================
@@ -9170,4 +9421,13 @@ if __name__ == "__main__":
         sys.exit(0)
     if a.urls:
         sys.exit(run_cli(a) or 0)
-    run_gui(a.port, a.minimized)
+    inst = claim_or_forward(a.minimized)  # one GUI per user: a second launch hands over to the running one and ends here
+    if inst is None:
+        sys.exit(0)
+    try:
+        run_gui(a.port, a.minimized, inst)
+    finally:
+        inst.close()
+        _t = threading.Timer(8.0, lambda: os._exit(0))
+        _t.daemon = True
+        _t.start()  # Exit must end the process even if a stray non-daemon thread lingers

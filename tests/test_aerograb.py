@@ -525,7 +525,7 @@ class TestTray(unittest.TestCase):
         self.assertTrue(tr.available)
         items = tr.icon.menu.items
         self.assertEqual([i if isinstance(i, str) else i.text for i in items],
-                         ["Show AeroGrab", "Pause all", "Resume all", "Speed limit", "Open download folder", "-", "Quit AeroGrab"])
+                         ["Show AeroGrab", "Pause all", "Resume all", "Speed limit", "Open download folder", "-", "Exit AeroGrab"])
         self.assertTrue(items[0].default)  # double-clicking the icon shows the window
         for i in (items[0], items[1], items[2], items[4], items[6]):
             i.action(tr.icon, i)
@@ -1089,67 +1089,36 @@ class FakeCanvas:
     def kinds(self, kind): return [c for c in self.calls if c[0] == kind]
 
 
-class TestGraph(Base):
-    def test_axis_maximum_is_tidy(self):
-        K, M = 1024, 1024 ** 2
-        self.assertEqual(aerograb.nice_max(0), 1024)
-        self.assertEqual(aerograb.nice_max(300 * K), 400 * K)
-        self.assertEqual(aerograb.nice_max(3.2 * M), 4 * M)
-        self.assertEqual(aerograb.nice_max(9 * M), 10 * M)
-        self.assertGreaterEqual(aerograb.nice_max(123456789), 123456789)
+class TestSpeedGraphIsGone(Base):
+    """The live speed graph was removed from the interface and from the code; the segment map (which parts of a file each connection filled) stays."""
 
-    def test_stats(self):
-        self.assertEqual(aerograb.graph_stats([1, 2, 3, 10]), (10, 10, 4.0))
-        self.assertEqual(aerograb.graph_stats([]), (0.0, 0.0, 0.0))
-        self.assertEqual(aerograb.graph_stats(list(range(100)), 10)[2], 94.5)  # only the last 10 samples count
+    def test_no_graph_code_or_state_is_left(self):
+        for name in ("draw_graph", "graph_stats", "nice_max", "HIST"):
+            self.assertFalse(hasattr(aerograb, name), name)
+        d = aerograb.Download("http://x/a.bin", self.tmp)
+        self.assertFalse(hasattr(d, "hist"))
+        self.assertFalse(hasattr(aerograb.Manager(), "hist"))
+        src = open(aerograb.__file__, encoding="utf-8").read().lower()
+        self.assertNotIn("speed graph", src)
+        self.assertNotIn("redraw_graph", src)
 
-    def test_http_segment_map(self):
-        d = aerograb.Download("http://x.test/f", self.tmp)
-        d.size, d.segs = 1000, [[500, 999, 500], [0, 499, 250]]
-        self.assertEqual(d.segment_map(), [(0, 0.5, 0.25), (0.5, 1.0, 0.5)])
+    def test_segment_map_still_draws(self):
+        calls = []
 
-    def test_hls_segment_map_merges_runs(self):
-        d = aerograb.HlsDownload("http://x.test/a.m3u8", self.tmp)
-        d.flags = bytearray([1, 1, 0, 0])
-        self.assertEqual(d.segment_map(), [(0, 0.5, 0.5), (0.5, 1.0, 0.5)])
-        d.flags = bytearray([0, 1, 1, 1])
-        self.assertEqual(d.segment_map(), [(0, 0.25, 0.0), (0.25, 1.0, 1.0)])
+        class Cv:
+            def delete(self, *a):
+                pass
 
-    def test_speed_history_and_no_spike_after_restart(self):
-        d = aerograb.Download("http://x.test/f", self.tmp)
-        d.size, d.segs, d._last = 4_000_000, [[0, 3_999_999, 2_000_000]], (time.time() - 2, 0)
-        d.update_speed()
-        self.assertAlmostEqual(d.hist[-1], 1_000_000, delta=150_000)
-        d2 = aerograb.Download.from_dict(json.loads(json.dumps(d.to_dict())))
-        self.assertEqual(d2._last[1], d2.done)  # a paused download reloaded with 2 MB done must not read as 2 MB/s
+            def winfo_width(self):
+                return 400
 
-    def test_total_history_is_sampled_once_a_second(self):
-        m = aerograb.Manager(persist=False)
-        d = m.add("http://x.test/f", self.tmp)
-        d.speed = 1234.0
-        m.schedule(); m.schedule()
-        self.assertEqual(list(m.hist), [1234.0])
+            def winfo_height(self):
+                return 12
 
-    def test_chart_draws_grid_line_and_fill(self):
-        cv = FakeCanvas()
-        aerograb.draw_graph(cv, [0, 1e6, 2e6, 1.5e6])
-        self.assertEqual(len(cv.kinds("create_polygon")), 1)
-        self.assertEqual(len(cv.kinds("create_line")), 5 + 1)           # 5 grid lines + the speed line
-        labels = [c[2]["text"] for c in cv.kinds("create_text")]
-        self.assertIn("now", labels)
-        self.assertTrue(any(l.endswith("MB/s") for l in labels), labels)
-        empty = FakeCanvas()
-        aerograb.draw_graph(empty, [])                                    # no data yet: axes only, no crash
-        self.assertEqual(len(empty.kinds("create_polygon")), 0)
-
-    def test_segment_bar(self):
-        cv = FakeCanvas(w=1000, h=16)
-        aerograb.draw_segmap(cv, [(0, 0.5, 0.25), (0.5, 1.0, 0.5)])
-        rects = cv.kinds("create_rectangle")
-        self.assertEqual(len(rects), 3)                                  # 2 segment boxes + 1 filled part
-        self.assertEqual(rects[1][1][:3], (0.0, 1, 250.0))               # filled to a quarter of the width
-        none = FakeCanvas(); aerograb.draw_segmap(none, [])
-        self.assertIn("Select a single download", none.kinds("create_text")[0][2]["text"])
+            def __getattr__(self, name):
+                return lambda *a, **k: calls.append((name, k))
+        aerograb.draw_segmap(Cv(), [(0.0, 1.0, 0.5)])
+        self.assertTrue(calls)
 
 
 class TestAssets(unittest.TestCase):

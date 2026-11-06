@@ -6,6 +6,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aerograb
+import aerograb_icons
 from test_wave1 import Base, send, drive, DATA
 
 
@@ -448,7 +449,7 @@ class TestSkins(unittest.TestCase):
             self.assertGreaterEqual(lum[1] / lum[0], 4.5, f"{name}: text on background")  # WCAG AA
             lum = sorted((aerograb.luminance(p["accent"]) + .05, aerograb.luminance(p["accent_fg"]) + .05))
             self.assertGreaterEqual(lum[1] / lum[0], 4.5, f"{name}: text on accent")
-            for k in ("bg", "panel", "field", "fg", "border", "button", "graph_bg"):
+            for k in ("bg", "panel", "sidebar", "surface", "field", "fg", "border", "button", "map_bg"):
                 self.assertTrue(aerograb.valid_hex(p[k]) or p[k] == "white", f"{name}.{k}")
 
     def test_accent_choice(self):
@@ -474,7 +475,7 @@ class TestToolbarLayout(unittest.TestCase):
             self.assertEqual(bid, icon)
             self.assertTrue(label)
             self.assertTrue(hasattr(aerograb.App, meth), meth)
-            self.assertTrue(icon in aerograb.UI_ICONS or icon in aerograb.GLYPHS, icon)
+            self.assertIn(icon, aerograb_icons.DATA, icon)
 
     def test_sanitising(self):
         L = lambda x: aerograb.toolbar_layout(x, ["add"], self.known)
@@ -483,13 +484,6 @@ class TestToolbarLayout(unittest.TestCase):
         self.assertEqual(L([]), ["add"])
         self.assertEqual(L("not a list"), ["add"])
         self.assertEqual(L(["scan", "clip", "|", "widget"]), ["scan", "clip", "|", "widget"])
-
-    def test_glyphs_stay_inside_the_32px_icon(self):
-        for name, rects in aerograb.GLYPHS.items():
-            self.assertTrue(rects, name)
-            for x0, y0, x1, y1, c in rects:
-                self.assertTrue(0 <= x0 <= x1 <= 31 and 0 <= y0 <= y1 <= 31, (name, x0, y0, x1, y1))
-                self.assertRegex(c, r"^#[0-9a-f]{6}$")
 
 
 if __name__ == "__main__":

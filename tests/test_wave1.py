@@ -882,13 +882,17 @@ class TestTheme(unittest.TestCase):
         self.assertEqual(set(light), set(dark))
         self.assertEqual((light["mode"], dark["mode"]), ("light", "dark"))
         self.assertEqual(aerograb.make_palette("nonsense")["mode"], "light")
-        self.assertEqual(aerograb.make_palette("dark", "garbage")["accent"], aerograb.DEFAULT_ACCENT)
-        self.assertEqual(light["accent_soft"], "#bfdbfe")  # the original light look is unchanged
+        self.assertEqual(aerograb.make_palette("dark", "garbage")["accent"], "#3b82f6")  # the Premium Dark accent
+        self.assertEqual(aerograb.make_palette("light")["accent"], "#2563eb")            # the Premium Light accent
+        self.assertEqual((light["bg"], light["surface"], light["sidebar"]), ("#f5f7fa", "#ffffff", "#eef1f5"))
+        self.assertEqual((aerograb.make_palette("dark")["bg"], aerograb.make_palette("dark")["sidebar"]), ("#111318", "#171b23"))
         self.assertLess(aerograb.luminance(dark["bg"]), 0.05)
         for name, hexv in aerograb.ACCENTS:
             p = aerograb.make_palette("dark", hexv)
-            self.assertEqual(p["accent"], hexv, name)
+            self.assertEqual(p["accent"], "#3b82f6" if hexv == aerograb.DEFAULT_ACCENT else hexv, name)  # the pick is used as picked; "Blue" = the theme's own blue
             self.assertIn(p["accent_fg"], ("#000000", "#ffffff"))
+            self.assertGreaterEqual(aerograb.contrast_ratio(p["accent_fg"], p["accent_bg"]), 4.5, name)  # text on filled accent buttons
+            self.assertGreaterEqual(aerograb.contrast_ratio(p["accent_text"], p["surface"]), 4.5, name)  # accent used as text
 
     def test_mode_resolution(self):
         self.assertEqual(aerograb.resolve_mode("dark"), "dark")
@@ -898,7 +902,7 @@ class TestTheme(unittest.TestCase):
         with mock.patch.object(aerograb, "system_is_dark", return_value=False):
             self.assertEqual(aerograb.resolve_mode("system"), "light")
 
-    def test_graph_follows_the_palette(self):
+    def test_segment_map_follows_the_palette(self):
         class Cv:
             def __init__(self):
                 self.calls = []
@@ -910,17 +914,11 @@ class TestTheme(unittest.TestCase):
                 return 400
 
             def winfo_height(self):
-                return 110
+                return 12
 
             def __getattr__(self, name):
                 return lambda *a, **k: self.calls.append((name, k))
         aerograb.set_palette(aerograb.make_palette("dark", "#16a34a"))
-        cv = Cv()
-        aerograb.draw_graph(cv, [100.0, 200.0, 300.0])
-        fills = {k.get("fill") for _, k in cv.calls}
-        self.assertIn("#16a34a", fills)
-        self.assertIn(aerograb.PAL["accent_soft"], fills)
-        self.assertNotIn("#2563eb", fills)
         cv = Cv()
         aerograb.draw_segmap(cv, [(0.0, 1.0, 0.5)])
         self.assertIn("#16a34a", {k.get("fill") for _, k in cv.calls})
